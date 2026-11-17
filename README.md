@@ -40,7 +40,7 @@ placeholder names or evaluate templates.
 ## Quick start
 
 ```sh
-git clone https://github.com/MVdWSoftware/MCDashboard-proxy.git
+git clone https://git.mvdw-software.com/mcdashboard/mcdashboard-proxy.git
 cd MCDashboard-proxy
 cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
 docker compose up -d

@@ -13,7 +13,7 @@ test:
     REDIS_URL: redis://redis:6379
     MCD_OPENAPI: contract/openapi.yaml
   script:
-    - git clone --depth 1 https://github.com/MVdWSoftware/MCDashboard-plugin.git contract
+    - git clone --depth 1 https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin.git contract
     - corepack enable && pnpm install --frozen-lockfile
     - pnpm lint
     - pnpm build

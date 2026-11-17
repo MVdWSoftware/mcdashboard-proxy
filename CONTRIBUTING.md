@@ -5,7 +5,7 @@ Thanks for helping! Bug reports, fixes, documentation and ideas are all welcome.
 ## Ground rules
 
 - **The contract comes first.** The proxy speaks the same API as the plugin
-  (`openapi.yaml` in the [MCDashboard-plugin repository](https://github.com/MVdWSoftware/MCDashboard-plugin)).
+  (`openapi.yaml` in the [MCDashboard-plugin repository](https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin)).
   It must not invent endpoints or change responses. If the API changes, `src/routes.ts` changes with it
   and `test/contract.test.ts` proves every operation is still routed (set `MCD_OPENAPI` to the contract file).
 - **Never share per-player data.** `private` answers are cached only under the caller's own scope. Any change

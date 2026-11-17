@@ -81,7 +81,7 @@ Limits of per-player caching:
 
 ## Revocation feed
 
-The plugin announces revoked devices ([plugin `docs/events.md`](https://github.com/MVdWSoftware/MCDashboard-plugin/blob/main/docs/events.md)),
+The plugin announces revoked devices ([plugin `docs/events.md`](https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin/blob/main/docs/events.md)),
 either as a stream the proxy follows (`EVENTS_TOKEN`) or as signed webhooks the proxy receives (`WEBHOOK_*`). Both feed the same
 two structures in the shared store, so every proxy node acts at once:
 

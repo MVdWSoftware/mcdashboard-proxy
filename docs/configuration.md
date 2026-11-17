@@ -72,7 +72,7 @@ tokens are passed through unchecked and entries are keyed per token. Revoked dev
 ## Device revocations
 
 Without these, a revoked device can still be served what is cached for its player until that entry expires (at most
-one `min-interval`). With either, it is refused at once. Details and the plugin side: [plugin `docs/events.md`](https://github.com/MVdWSoftware/MCDashboard-plugin/blob/main/docs/events.md).
+one `min-interval`). With either, it is refused at once. Details and the plugin side: [plugin `docs/events.md`](https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin/blob/main/docs/events.md).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
