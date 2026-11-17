@@ -1,0 +1,16 @@
+stages: [test]
+
+test:
+  stage: test
+  image: node:22
+  services:
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    REDIS_URL: redis://redis:6379
+  script:
+    - corepack enable && pnpm install --frozen-lockfile
+    - pnpm lint
+    - pnpm build
+    - pnpm test
+    - pnpm audit --prod --audit-level high

@@ -1,0 +1,20 @@
+{
+  "name": "mcdashboard-proxy",
+  "version": "0.1.0",
+  "description": "Caching, rate-limiting reverse proxy that shields an MCDashboard Minecraft server from abuse",
+  "license": "MIT",
+  "packageManager": "pnpm@11.9.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "main": "dist/index.js",
+  "bin": { "mcdashboard-proxy": "dist/index.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "start": "node dist/index.js"
+  },
+  "dependencies": { "ioredis": "^5.4.1" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "~5.6.0", "vitest": "^2.1.0" }
+}
