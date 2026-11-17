@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { describe, expect, it } from "vitest";
 import { canonicalLanguages, canonicalQuery, match } from "../src/routes.js";
 

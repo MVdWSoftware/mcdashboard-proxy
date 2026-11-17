@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 export interface Config {
   listenHost: string;
   listenPort: number;
@@ -22,10 +27,7 @@ export interface Config {
   negativeTtlS: number;
   staleIfErrorS: number;
   cacheMaxBodyBytes: number;
-  /**
-   * API key of the reverse tunnel (`TUNNEL_TOKEN`, 32+ chars). When set the plugin dials in over one WebSocket and
-   * `UPSTREAM_URL`, `UPSTREAM_LIVE_URL` and the event stream are not used.
-   */
+  /** When set the plugin dials in, and `upstream`, `liveUpstream` and `eventsToken` are not used. */
   tunnelToken: string | null;
   tunnelPath: string;
   /** Seconds of silence after which the tunnel is considered dead and dropped (pings go out every third of it). */
@@ -44,7 +46,9 @@ export interface Config {
   limits: { read: number; auth: number; write: number; badToken: number; windowS: number };
 }
 
-function int(env: NodeJS.ProcessEnv, name: string, def: number, min = 0): number {
+type Env = Record<string, string | undefined>;
+
+function int(env: Env, name: string, def: number, min = 0): number {
   const raw = env[name];
   if (raw === undefined || raw === "") return def;
   const n = Number(raw);
@@ -52,14 +56,14 @@ function int(env: NodeJS.ProcessEnv, name: string, def: number, min = 0): number
   return n;
 }
 
-function url(env: NodeJS.ProcessEnv, name: string, def: string): URL {
+function url(env: Env, name: string, def: string): URL {
   const u = new URL(env[name] || def);
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error(`${name} must be http(s)`);
   return u;
 }
 
 /** Reads the configuration from environment variables (documented in docs/configuration.md). */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export function loadConfig(env: Env = process.env): Config {
   const secret = env.MCD_JWT_SECRET?.trim();
   let jwtSecret: Buffer | null = null;
   if (secret) {

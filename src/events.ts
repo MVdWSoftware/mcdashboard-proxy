@@ -1,7 +1,14 @@
-import http from "node:http";
-import https from "node:https";
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { request as httpRequest } from "node:http";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { Metrics } from "./metrics.js";
 import type { Revocations } from "./revocations.js";
+import { endpoint } from "./upstream.js";
 
 /** Mirrors `DeviceRevokedEvent` in openapi.yaml of the MCDashboard-plugin repository. */
 export interface DeviceRevokedEvent {
@@ -48,7 +55,7 @@ export class SseParser {
     const line = /\r\n|\n|\r/g;
     let start = 0;
     while ((m = line.exec(this.buffer)) !== null) {
-      // a lone CR at the very end may be the first half of CRLF: wait for more
+      // A lone CR at the very end may be the first half of a CRLF.
       if (m[0] === "\r" && line.lastIndex === this.buffer.length) break;
       const text = this.buffer.slice(start, m.index);
       start = line.lastIndex;
@@ -66,7 +73,7 @@ export class SseParser {
       }
     }
     this.buffer = this.buffer.slice(start);
-    if (this.buffer.length > 64 * 1024) this.buffer = ""; // a line that long is not ours
+    if (this.buffer.length > 64 * 1024) this.buffer = "";
     return out;
   }
 }
@@ -89,7 +96,7 @@ export interface EventStreamOptions {
 export class EventStream {
   private lastId: string | undefined;
   private attempt = 0;
-  private req: http.ClientRequest | null = null;
+  private req: ClientRequest | null = null;
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
   connected = false;
@@ -108,11 +115,11 @@ export class EventStream {
 
   private connect(): void {
     const { url, token } = this.o;
-    const lib = url.protocol === "https:" ? https : http;
+    const request = url.protocol === "https:" ? httpsRequest : httpRequest;
     const headers: Record<string, string> = { accept: "text/event-stream", authorization: `Bearer ${token}`, "cache-control": "no-cache" };
     if (this.lastId) headers["last-event-id"] = this.lastId;
-    const req = lib.request(
-      { protocol: url.protocol, hostname: url.hostname, port: url.port || (url.protocol === "https:" ? 443 : 80), path: "/v1/events", method: "GET", headers, agent: false },
+    const req = request(
+      { ...endpoint(url), path: "/v1/events", method: "GET", headers, agent: false },
       (res) => {
         if (res.statusCode !== 200 || !String(res.headers["content-type"]).startsWith("text/event-stream")) {
           this.o.log?.(`events: plugin answered ${res.statusCode} (404 = events.token not set, 401 = wrong token)`);
@@ -125,7 +132,8 @@ export class EventStream {
         this.watchdog(res);
         const parser = new SseParser();
         res.setEncoding("utf8");
-        let chain: Promise<void> = this.lastId ? Promise.resolve() : this.o.revocations.bumpGeneration(); // continuity unknown on first connect
+        // Continuity is unknown on the first connect.
+        let chain: Promise<void> = this.lastId ? Promise.resolve() : this.o.revocations.bumpGeneration();
         res.on("data", (chunk: string) => {
           this.watchdog(res);
           for (const msg of parser.feed(chunk)) chain = chain.then(() => this.handle(msg)).catch(() => {});
@@ -154,7 +162,7 @@ export class EventStream {
     if (await applyEvent(payload, this.o.revocations, this.o.metrics) && msg.id) this.lastId = msg.id;
   }
 
-  private watchdog(res: http.IncomingMessage): void {
+  private watchdog(res: IncomingMessage): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => res.destroy(new Error("stream idle")), this.o.idleMs ?? 45_000);
     this.timer.unref();

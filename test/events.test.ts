@@ -1,4 +1,10 @@
-import http from "node:http";
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { createServer, request } from "node:http";
+import type { IncomingHttpHeaders, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventStream, SseParser } from "../src/events.js";
@@ -54,7 +60,7 @@ describe("webhook receiver", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     closers.push(() => new Promise((r) => { server.closeAllConnections(); server.close(r); }));
     const post = (body: string, headers: Record<string, string>, path = "/hooks/mcdashboard") => new Promise<number>((resolve, reject) => {
-      const req = http.request({ host: "127.0.0.1", port: (server.address() as AddressInfo).port, path, method: "POST", headers: { "content-length": Buffer.byteLength(body), ...headers } }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      const req = request({ host: "127.0.0.1", port: (server.address() as AddressInfo).port, path, method: "POST", headers: { "content-length": Buffer.byteLength(body), ...headers } }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
       req.on("error", reject);
       req.end(body);
     });
@@ -90,8 +96,8 @@ describe("webhook receiver", () => {
 describe("event stream", () => {
   /** A stand-in for the plugin's GET /v1/events. */
   async function fakePlugin() {
-    const state = { sockets: [] as http.ServerResponse[], requests: [] as http.IncomingHttpHeaders[], status: 200 };
-    const server = http.createServer((req, res) => {
+    const state = { sockets: [] as ServerResponse[], requests: [] as IncomingHttpHeaders[], status: 200 };
+    const server = createServer((req, res) => {
       state.requests.push(req.headers);
       if (req.headers.authorization !== "Bearer events-token-0123456789") { res.writeHead(401).end(); return; }
       if (state.status !== 200) { res.writeHead(state.status).end(); return; }
@@ -113,23 +119,21 @@ describe("event stream", () => {
     closers.push(() => stream.stop());
     stream.start();
     await wait(() => stream.connected);
-    await new Promise((r) => setTimeout(r, 50)); // the first connect bumps the generation once (continuity unknown)
+    await new Promise((r) => setTimeout(r, 50));
     const afterConnect = await revocations.generation();
     plugin.send("e1:1", "device.revoked", revoked(1, "dev-a"));
     await wait(() => revocations.isDenied("dev-a"));
     expect(await revocations.isDenied("dev-b")).toBe(false);
 
-    // the connection drops; the stream comes back asking for what follows e1:1
     plugin.state.sockets.splice(0).forEach((s) => s.destroy());
     await wait(() => plugin.state.requests.length >= 2 && stream.connected, 6000);
     expect(plugin.state.requests.at(-1)!["last-event-id"]).toBe("e1:1");
     plugin.send("e1:2", "device.revoked", revoked(2, "dev-b"));
     await wait(() => revocations.isDenied("dev-b"));
-    expect(await revocations.generation()).toBe(afterConnect); // resumed without a gap: cache untouched
+    expect(await revocations.generation()).toBe(afterConnect);
 
-    // the plugin says it cannot guarantee continuity
     plugin.send("e1:3", "reset", { epoch: "e2" });
-    await new Promise((r) => setTimeout(r, 2200)); // generation is memoised for 2 s
+    await new Promise((r) => setTimeout(r, 2200)); // the generation is memoised for 2 s
     await wait(async () => (await revocations.generation()) !== afterConnect, 4000);
   });
 

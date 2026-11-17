@@ -1,18 +1,23 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { match } from "../src/routes.js";
 
-// The contract lives in the MCDashboard-plugin repository (openapi.yaml). Point
-// MCD_OPENAPI at it (CI does); next to a sibling checkout it is found automatically.
+// openapi.yaml of the MCDashboard-plugin repository: MCD_OPENAPI (CI), else a sibling checkout. Skipped only when
+// neither is there; a wrong MCD_OPENAPI fails instead of silently skipping.
 const file = process.env.MCD_OPENAPI ?? "../MCDashboard-plugin/openapi.yaml";
 
-describe.skipIf(!existsSync(file))("OpenAPI contract", () => {
+describe.skipIf(!process.env.MCD_OPENAPI && !existsSync(file))("OpenAPI contract", () => {
   const operations = () => {
     let path = "";
     const ops: { method: string; url: string; internal: boolean }[] = [];
     let inPaths = false;
     for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (/^\S/.test(line)) inPaths = line.startsWith("paths:"); // webhooks:, components: ... are not routes
+      if (/^\S/.test(line)) inPaths = line.startsWith("paths:");
       if (!inPaths) continue;
       const p = /^  (\/\S+):\s*$/.exec(line);
       if (p) path = p[1]!;

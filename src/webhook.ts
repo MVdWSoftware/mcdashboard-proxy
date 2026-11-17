@@ -1,8 +1,14 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { createHmac, timingSafeEqual } from "node:crypto";
-import http from "node:http";
+import { createServer } from "node:http";
+import type { Server } from "node:http";
 import type { Metrics } from "./metrics.js";
-import type { Revocations } from "./revocations.js";
 import { applyEvent } from "./events.js";
+import type { Revocations } from "./revocations.js";
 
 const MAX_BODY = 8 * 1024;
 
@@ -24,8 +30,8 @@ export function verify(secret: string, timestamp: string | undefined, signature:
  * every request must carry a valid signature and a fresh timestamp. Answers `204` once the event is applied,
  * and also for event types it does not know, so the plugin does not retry them.
  */
-export function createWebhookServer(secret: string, toleranceS: number, revocations: Revocations, metrics: Metrics): http.Server {
-  return http.createServer({ maxHeaderSize: 4096, requestTimeout: 10_000, headersTimeout: 5_000 }, (req, res) => {
+export function createWebhookServer(secret: string, toleranceS: number, revocations: Revocations, metrics: Metrics): Server {
+  return createServer({ maxHeaderSize: 4096, requestTimeout: 10_000, headersTimeout: 5_000 }, (req, res) => {
     const fail = (status: number, message: string) => {
       metrics.inc("mcdp_webhook_rejected_total", { status: String(status) });
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({ error: message }));
@@ -57,7 +63,7 @@ export function createWebhookServer(secret: string, toleranceS: number, revocati
       }
       applyEvent(payload, revocations, metrics).then(
         () => res.writeHead(204, { "cache-control": "no-store" }).end(),
-        () => fail(500, "could not record the event"), // the plugin retries
+        () => fail(500, "could not record the event"),
       );
     });
   });

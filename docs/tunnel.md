@@ -4,11 +4,11 @@ Instead of reaching the plugin, the proxy can let the plugin reach **it**. The p
 WebSocket**, and everything travels over that connection:
 
 - REST requests (proxy to plugin), answered by the plugin's own API,
-- live-feed byte streams (both ways), so the app's `/v1/live` socket is relayed without the proxy parsing frames,
+- live-feed byte streams (both ways), so the app's live-feed socket is relayed without the proxy parsing frames,
 - device revocations (plugin to proxy), so no stream or webhook is needed.
 
 The proxy never opens a connection to the Minecraft server, so the server needs no inbound port for the API. It only has
-to answer `GET /v1/info` for discovery (plugin `server.discovery-only`, `server.endpoints`).
+to answer discovery requests (plugin `server.discovery-only`, `server.endpoints`).
 
 ## Turn it on
 
@@ -16,7 +16,7 @@ to answer `GET /v1/info` for discovery (plugin `server.discovery-only`, `server.
 | --- | --- | --- |
 | `TUNNEL_TOKEN` | unset | The API key. 32+ characters; setting it turns the tunnel on and makes `UPSTREAM_URL`, `UPSTREAM_LIVE_URL`, `EVENTS_TOKEN` and `WEBHOOK_*` irrelevant |
 | `TUNNEL_ALLOWED_IPS` | empty | Comma separated addresses/CIDRs that may open the tunnel. Strongly recommended: the game server's address |
-| `TUNNEL_PATH` | `/tunnel` | Where the plugin connects; cannot be under `/v1` |
+| `TUNNEL_PATH` | `/tunnel` | Where the plugin connects; cannot be under the API path |
 | `TUNNEL_DEAD_S` | `60` | Seconds of silence after which the tunnel is dropped as dead (pings go out every third of it) |
 
 Plugin (`config.yml`):
@@ -75,27 +75,11 @@ The tunnel carries the plugin's whole API, so opening it is the most sensitive t
    public host.
 5. **One connection.** A new authenticated connection replaces the old one (a restarted plugin reconnects at once).
 6. **Bounded.** Messages are limited to 4 MiB, responses to 2 MiB, live streams to `MAX_LIVE_TOTAL`, requests in flight
-   to `MAX_UPSTREAM_CONCURRENCY`. Binary frames and unknown message types are refused or ignored; response headers are
-   filtered exactly like for a direct upstream.
-7. **Least reach.** The plugin only answers `/v1/*` over the tunnel (never `/v1/events`) and only connects to its own live
+   to `MAX_UPSTREAM_CONCURRENCY`. Unmasked, binary, malformed control or out-of-order fragmented frames close the
+   connection; unknown message types are ignored; response headers are filtered exactly like for a direct upstream.
+7. **Least reach.** The plugin only answers the API routes it is meant to over the tunnel (never the events stream) and only connects to its own live
    port. The proxy still allows only the routes in the API contract.
 
 Rotating the key: set the new key on the proxy and in the plugin, restart both. The old key stops working at once.
-
-## Protocol (version 1)
-
-A WebSocket (RFC 6455), text frames only, one JSON object per frame, `t` names the message. Bodies are base64.
-
-| `t` | From | Fields | Meaning |
-| --- | --- | --- | --- |
-| `hello` | plugin | `server`, `version` | First message after connecting |
-| `ready` | proxy | `since` (last event id or `null`) | The plugin may start sending events; it replays what was missed after `since` |
-| `req` | proxy | `id`, `m`, `p`, `h`, `b?` | REST request: method, path with query, forwarded headers, body |
-| `res` | plugin | `id`, `s`, `h`, `b` | Its answer: status, headers, body |
-| `open` | proxy | `c` | Opens a live-feed stream (the plugin connects to its own live port) |
-| `d` | both | `c`, `b` | Bytes of stream `c`, in order, including the WebSocket handshake |
-| `x` | both | `c` | Closes stream `c` |
-| `ev` | plugin | `id`, `e` | A device event ([plugin `docs/events.md`](https://github.com/MVdWSoftware/MCDashboard-plugin/blob/main/docs/events.md)), `id` is `epoch:seq` |
-| `reset` | plugin | | Continuity with `since` is lost: the proxy drops per-player cache entries |
 
 When the tunnel is down, see [health checks](#health-checks-and-reconnection).

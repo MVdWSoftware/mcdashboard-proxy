@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 /**
  * The proxy exposes exactly the routes of the MCDashboard OpenAPI contract
  * (openapi.yaml in the MCDashboard-plugin repository). Everything else is answered

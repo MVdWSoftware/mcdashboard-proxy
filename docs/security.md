@@ -5,15 +5,16 @@
 | Threat | Mitigation |
 | --- | --- |
 | Request floods making the plugin resolve placeholders | Shared cache with coalescing; per-client rate limits; cap on requests in flight towards the plugin with `503` shedding |
-| Cache busting with random query strings or headers | Strict query allowlist and canonical cache key; `Accept-Language` reduced to supported languages |
+| Cache busting with random query strings, headers or tokens | Strict query allowlist and canonical cache key; `Accept-Language` reduced to supported languages; unverified tokens only store the `private` answers the plugin gave them |
+| Cache poisoning | The plugin is asked only with the canonical language; answers that `Vary` on other headers are not stored; `403` (a refused `User-Agent`) is never remembered, `401` never in a scope shared by several devices |
 | Probing for other endpoints | Anything outside the API contract is answered `404` locally |
 | Pairing code and refresh brute force | `10`/minute per client at the edge (plus the plugin's own limit) |
-| Forged or stolen-secret-less tokens, `alg: none` | Optional HS256-only check at the edge, failures throttled |
-| Slowloris, huge headers, huge bodies | Header, request and idle timeouts, 8 KB header limit, URL and body limits |
+| Forged or expired tokens | Optional signature check at the edge, failures throttled |
+| Slowloris, huge headers, huge bodies | Header, request and idle timeouts, 8 KB header limit, URL and body limits; the connection is closed after a refused body; refused WebSocket upgrades are closed at once |
 | Spoofed `X-Forwarded-For` to evade limits | Only honoured from `TRUSTED_PROXIES`; right-most untrusted hop is used |
 | One player's data served to another | The caller's identity (verified player, or token hash) is part of the cache key; `private` answers are stored only under it and never served to anyone else |
 | Revoked device still reading | With a revocation feed (`EVENTS_TOKEN` or `WEBHOOK_*`) the device is refused at once, on every node. Without one, cached answers live at most one `min-interval`; the plugin decides on every miss |
-| Forged or replayed webhook | HMAC-SHA256 over timestamp and body, constant-time compare, timestamp tolerance, separate private port, 8 KB limit |
+| Forged or replayed webhook | Signed with a shared secret, constant-time compare, timestamp tolerance, separate private port, 8 KB limit |
 | Plugin crash or restart | Stale-if-error, `502` with `Retry-After`, no retry storms |
 | Information leaks | Upstream headers and error pages are not forwarded; the origin address stays private |
 | Redis tampering or outage | Redis is internal (password, not published); outage falls back to local memory |

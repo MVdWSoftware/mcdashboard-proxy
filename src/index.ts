@@ -1,12 +1,18 @@
 #!/usr/bin/env node
-import http from "node:http";
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { createServer } from "node:http";
+import type { Server } from "node:http";
 import { loadConfig } from "./config.js";
-import { createProxy } from "./proxy.js";
 import { EventStream } from "./events.js";
+import { createProxy } from "./proxy.js";
 import { Revocations } from "./revocations.js";
-import { createWebhookServer } from "./webhook.js";
 import { FallbackStore, MemoryStore, RedisStore } from "./store.js";
 import type { Store } from "./store.js";
+import { createWebhookServer } from "./webhook.js";
 
 const config = loadConfig();
 let store: Store;
@@ -22,14 +28,15 @@ if (config.redisUrl) {
 
 const revocations = new Revocations(store, config.revocationTtlS);
 const proxy = createProxy(config, store, revocations);
-proxy.server.listen(config.listenPort, config.listenHost, () => console.log(`mcdashboard-proxy on ${config.listenHost}:${config.listenPort} -> ${config.tunnelToken ? `tunnel ${config.tunnelPath} (waiting for the plugin)` : config.upstream.origin}`));
+const target = config.tunnelToken ? `tunnel ${config.tunnelPath} (waiting for the plugin)` : config.upstream.origin;
+proxy.server.listen(config.listenPort, config.listenHost, () => console.log(`mcdashboard-proxy on ${config.listenHost}:${config.listenPort} -> ${target}`));
 
-// Device revocations: the stream resumes by itself; webhooks cannot, so a restart drops per-player entries instead.
+// The stream resumes by itself; webhooks cannot, so a start with webhooks only drops per-player entries instead.
 const stream = config.eventsToken && !config.tunnelToken
   ? new EventStream({ url: config.upstream, token: config.eventsToken, revocations, metrics: proxy.metrics, log: (m) => console.warn(m) })
   : null;
 stream?.start();
-let webhook: http.Server | null = null;
+let webhook: Server | null = null;
 if (config.webhookSecret && config.webhookPort > 0) {
   webhook = createWebhookServer(config.webhookSecret, config.webhookToleranceS, revocations, proxy.metrics);
   webhook.listen(config.webhookPort, config.webhookHost, () => console.log(`webhook receiver on ${config.webhookHost}:${config.webhookPort}`));
@@ -50,10 +57,9 @@ function tunnelGauges(): Record<string, number> {
   };
 }
 
-// Operational endpoints live on their own (loopback by default) port, never on the public one.
-const admin = http.createServer(async (req, res) => {
+// Operational endpoints: on their own port (loopback by default), never on the public one.
+const admin = createServer(async (req, res) => {
   if (req.url === "/healthz") return void res.writeHead(200).end("ok\n");
-  // Tunnel mode: the proxy is only useful while the plugin is connected, so a balancer or orchestrator can see it.
   if (req.url === "/tunnelz" && proxy.tunnel) {
     const t = proxy.tunnel.info();
     return void res.writeHead(t.connected ? 200 : 503, { "content-type": "application/json" }).end(JSON.stringify(t));

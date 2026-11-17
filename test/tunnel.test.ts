@@ -1,24 +1,37 @@
-import net from "node:net";
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { get, startProxy } from "./helpers.js";
-import { MemoryStore } from "../src/store.js";
 import { Revocations } from "../src/revocations.js";
+import { MemoryStore } from "../src/store.js";
+import { get, startProxy } from "./helpers.js";
 
 const closers: (() => unknown)[] = [];
 afterEach(async () => { while (closers.length) await closers.pop()!(); });
 
 const KEY = "k".repeat(40);
 
-function maskedFrame(text: string): Buffer {
+function maskedFrame(text: string, opcode = 0x1, fin = true): Buffer {
   const payload = Buffer.from(text);
   const mask = Buffer.from([1, 2, 3, 4]);
-  const head = payload.length < 126 ? Buffer.from([0x81, 0x80 | payload.length]) : Buffer.from([0x81, 0x80 | 126, payload.length >> 8, payload.length & 255]);
+  const b0 = (fin ? 0x80 : 0) | opcode;
+  const n = payload.length;
+  let head: Buffer;
+  if (n < 126) head = Buffer.from([b0, 0x80 | n]);
+  else if (n < 65536) head = Buffer.from([b0, 0x80 | 126, n >> 8, n & 255]);
+  else {
+    head = Buffer.from([b0, 0x80 | 127, 0, 0, 0, 0, 0, 0, 0, 0]);
+    head.writeUInt32BE(n, 6);
+  }
   return Buffer.concat([head, mask, Buffer.from(payload.map((b, i) => b ^ mask[i % 4]!))]);
 }
 
 /** A stand-in plugin: dials the proxy's tunnel and answers with whatever `onMessage` returns. */
 async function plugin(port: number, opts: { key?: string; onMessage?: (m: any, send: (o: unknown) => void) => void } = {}) {
-  const sock = net.connect(port, "127.0.0.1");
+  const sock = connect(port, "127.0.0.1");
   await new Promise<void>((r) => sock.once("connect", () => r()));
   sock.write(`GET /tunnel HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer ${opts.key ?? KEY}\r\n\r\n`);
   closers.push(() => sock.destroy());
@@ -40,6 +53,7 @@ async function plugin(port: number, opts: { key?: string; onMessage?: (m: any, s
         let len = buf[1]! & 0x7f;
         let off = 2;
         if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+        if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
         if (buf.length < off + len) return;
         if ((buf[0]! & 0x0f) === 1) {
           const m = JSON.parse(buf.subarray(off, off + len).toString());
@@ -68,7 +82,7 @@ describe("reverse tunnel", () => {
     const r = await get(p.port, "/v1/values?ids=online");
     expect(r.status).toBe(200);
     expect(r.body).toContain("online");
-    expect(r.headers.server).toBeUndefined(); // response headers are still filtered
+    expect(r.headers.server).toBeUndefined();
     expect(t.messages.filter((m) => m.t === "req")).toHaveLength(1);
   });
 
@@ -84,7 +98,7 @@ describe("reverse tunnel", () => {
     expect((await plugin(p.port, { key: "x".repeat(40) })).head).toContain("401");
     const q = await startProxy({ TUNNEL_TOKEN: KEY, TUNNEL_ALLOWED_IPS: "10.9.9.9" });
     closers.push(q.close);
-    expect((await plugin(q.port)).head).toContain("404"); // does not reveal the endpoint
+    expect((await plugin(q.port)).head).toContain("404");
     await plugin(p.port, { key: "y".repeat(40) });
     await plugin(p.port, { key: "y".repeat(40) });
     expect((await plugin(p.port, { key: "y".repeat(40) })).head).toContain("429");
@@ -107,24 +121,24 @@ describe("reverse tunnel", () => {
     closers.push(p.close);
     const t = await plugin(p.port, {
       onMessage: (m, send) => {
-        if (m.t === "d") send({ t: "d", c: m.c, b: m.b }); // echo
+        if (m.t === "d") send({ t: "d", c: m.c, b: m.b });
       },
     });
     t.send({ t: "hello" });
     await new Promise((r) => setTimeout(r, 50));
-    const app = net.connect(p.port, "127.0.0.1");
+    const app = connect(p.port, "127.0.0.1");
     closers.push(() => app.destroy());
     await new Promise<void>((r) => app.once("connect", () => r()));
     app.write("GET /v1/live HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n");
     const echoed = await new Promise<string>((r) => app.once("data", (d) => r(d.toString())));
-    expect(echoed).toContain("GET /v1/live"); // the upgrade request itself travelled to the plugin and back
+    expect(echoed).toContain("GET /v1/live");
     expect(t.messages.some((m) => m.t === "open")).toBe(true);
   });
 
   it("drops a plugin that goes silent and recovers when it reconnects", async () => {
     const p = await startProxy({ TUNNEL_TOKEN: KEY, TUNNEL_DEAD_S: "3" });
     closers.push(p.close);
-    const t = await plugin(p.port); // answers no pings: a half-open peer
+    const t = await plugin(p.port);
     t.send({ t: "hello", server: "s" });
     await new Promise((r) => setTimeout(r, 100));
     expect(p.proxy.tunnel!.connected).toBe(true);
@@ -132,7 +146,6 @@ describe("reverse tunnel", () => {
     await new Promise<void>((r) => t.sock.once("close", () => r()));
     expect(p.proxy.tunnel!.connected).toBe(false);
     expect((await get(p.port, "/v1/values?ids=online")).status).toBe(502);
-    // the plugin comes back (its reconnect loop) and everything works again
     const again = await plugin(p.port, { onMessage: answer });
     again.send({ t: "hello", server: "s" });
     await new Promise((r) => setTimeout(r, 100));
@@ -143,7 +156,7 @@ describe("reverse tunnel", () => {
     const p = await startProxy({ TUNNEL_TOKEN: KEY, TUNNEL_DEAD_S: "3" });
     closers.push(p.close);
     const t = await plugin(p.port);
-    expect(p.proxy.tunnel!.connected).toBe(false); // upgraded, but not ready
+    expect(p.proxy.tunnel!.connected).toBe(false);
     await new Promise<void>((r) => t.sock.once("close", () => r()));
   }, 10_000);
 
@@ -158,5 +171,41 @@ describe("reverse tunnel", () => {
     await new Promise<void>((r) => a.sock.once("close", () => r()));
     await new Promise((r) => setTimeout(r, 50));
     expect((await get(p.port, "/v1/values?ids=online")).status).toBe(200);
+  });
+
+  it("carries a large response split over many TCP writes", async () => {
+    const p = await startProxy({ TUNNEL_TOKEN: KEY });
+    closers.push(p.close);
+    const body = Buffer.alloc(100_000, "a").toString("base64");
+    const t = await plugin(p.port, {
+      onMessage: (m) => {
+        if (m.t !== "req") return;
+        const frame = maskedFrame(JSON.stringify({ t: "res", id: m.id, s: 200, h: { "content-type": "text/plain" }, b: body }));
+        for (let i = 0; i < frame.length; i += 1000) t.sock.write(frame.subarray(i, i + 1000));
+      },
+    });
+    t.send({ t: "hello" });
+    await new Promise((r) => setTimeout(r, 50));
+    const r = await get(p.port, "/v1/info");
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(100_000);
+  });
+
+  it.each([
+    ["a fragmented ping", maskedFrame("", 0x9, false)],
+    ["a continuation without a message", maskedFrame("{}", 0x0)],
+    ["a new message inside a fragmented one", Buffer.concat([maskedFrame("{", 0x1, false), maskedFrame("{}", 0x1)])],
+    ["an unmasked frame", Buffer.from([0x81, 0x02, 0x7b, 0x7d])],
+  ])("closes the tunnel on a protocol violation: %s", async (_name, bytes) => {
+    const p = await startProxy({ TUNNEL_TOKEN: KEY });
+    closers.push(p.close);
+    const t = await plugin(p.port);
+    t.send({ t: "hello" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(p.proxy.tunnel!.connected).toBe(true);
+    const closed = new Promise<void>((r) => t.sock.once("close", () => r()));
+    t.sock.write(bytes);
+    await closed;
+    expect(p.proxy.tunnel!.connected).toBe(false);
   });
 });

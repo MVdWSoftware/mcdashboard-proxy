@@ -1,5 +1,10 @@
-import http from "node:http";
-import https from "node:https";
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { Agent as HttpAgent, request as httpRequest } from "node:http";
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { pick } from "./cache.js";
 
 export interface UpstreamResponse {
@@ -14,24 +19,29 @@ export interface UpstreamPort {
   close(): void;
 }
 
-const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+/** Host name and port to connect to; IPv6 literals lose their URL brackets. */
+export function endpoint(url: URL): { host: string; port: number } {
+  return { host: url.hostname.replace(/^\[(.*)\]$/, "$1"), port: Number(url.port || (url.protocol === "https:" ? 443 : 80)) };
+}
 
 /** Talks to the plugin over a small keep-alive pool, so the proxy never opens more sockets than configured. */
 export class Upstream implements UpstreamPort {
-  private readonly agent: http.Agent;
+  private readonly agent: HttpAgent;
+  private readonly tls: boolean;
 
   constructor(private readonly base: URL, maxSockets: number, private readonly timeoutMs: number) {
-    const Agent = base.protocol === "https:" ? https.Agent : http.Agent;
+    this.tls = base.protocol === "https:";
+    const Agent = this.tls ? HttpsAgent : HttpAgent;
     this.agent = new Agent({ keepAlive: true, maxSockets, maxFreeSockets: 8 });
   }
 
   request(method: string, pathAndQuery: string, headers: Record<string, string>, body?: Buffer): Promise<UpstreamResponse> {
     return new Promise((resolve, reject) => {
-      const lib = this.base.protocol === "https:" ? https : http;
-      const req = lib.request(
+      const req = (this.tls ? httpsRequest : httpRequest)(
         {
-          host: this.base.hostname,
-          port: this.base.port || (this.base.protocol === "https:" ? 443 : 80),
+          ...endpoint(this.base),
           method,
           path: pathAndQuery,
           headers: body ? { ...headers, "content-length": String(body.length) } : headers,

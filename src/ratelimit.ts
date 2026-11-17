@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import type { Store } from "./store.js";
 
 /** Fixed-window per-client counters kept in the shared store, so every proxy node sees the same count. */

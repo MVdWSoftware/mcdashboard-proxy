@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { createHash } from "node:crypto";
 import type { Store } from "./store.js";
 
@@ -10,38 +15,54 @@ export interface Cached {
   maxAge: number;
 }
 
+/**
+ * Who a cached answer belongs to. `player` is a verified player (shared by their devices), `token` a verified token
+ * without a player, `unverified` a token the proxy cannot check (no `MCD_JWT_SECRET`).
+ */
+export type ScopeKind = "anonymous" | "player" | "token" | "unverified";
+
 /** Response headers that are kept; everything else the plugin sends is dropped. */
 export const PASS_HEADERS = ["content-type", "cache-control", "etag", "vary", "content-language", "www-authenticate", "retry-after"];
+
+/** Headers the cache key already covers (scope, canonical language) or that the proxy never sends. */
+const KEYED_VARY = new Set(["authorization", "accept-language", "accept-encoding"]);
 
 export function pick(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const h of PASS_HEADERS) {
     const v = headers[h];
-    if (typeof v === "string") out[h] = v;
+    // Node refuses such values in writeHead; a cached entry with one would fail on every hit.
+    if (typeof v === "string" && !/[^\t\x20-\x7e\x80-\xff]/.test(v)) out[h] = v;
   }
   return out;
 }
 
 /**
- * Freshness for a response, or null when it must not be stored. Anonymous requests store only
- * shared-cacheable (`public`) answers. `private` (per-player) answers are stored only under that
- * player's scope (see `ResponseCache.key`), never shared; `no-store` is never stored.
- * Errors that carry no cache headers (404/401/403) are kept briefly so a flood of bad
- * requests is absorbed here.
+ * Freshness for a response, or null when it must not be stored.
+ *
+ * - Anonymous requests store only `public` answers; scoped ones also `private` answers, under their own scope.
+ * - An unverified token stores only `private` answers: a `public` one means the plugin did not recognise the token,
+ *   and storing it per random token would let anyone fill the cache.
+ * - Errors are remembered for `negativeTtlS`: `404` in any scope, `401` only where it cannot belong to another
+ *   device's token, never `403` (the plugin answers it for a User-Agent it refuses, so one client could poison it
+ *   for all), and nothing for unverified tokens.
  */
-export function freshness(status: number, headers: Record<string, string>, negativeTtlS: number, scoped: boolean): number | null {
+export function freshness(status: number, headers: Record<string, string>, kind: ScopeKind, negativeTtlS: number): number | null {
   const cc = (headers["cache-control"] ?? "").toLowerCase();
   if (/(^|,\s*)(no-store|no-cache)\b/.test(cc)) return null;
+  const vary = (headers.vary ?? "").toLowerCase().split(",").map((v) => v.trim()).filter(Boolean);
+  if (!vary.every((v) => KEYED_VARY.has(v))) return null;
   const isPrivate = /(^|,\s*)private\b/.test(cc);
-  // `private` answers are stored only under a per-player scope; anonymous requests never see them.
-  if (isPrivate && !scoped) return null;
+  const isPublic = /(^|,\s*)public\b/.test(cc);
+  if (isPrivate && kind === "anonymous") return null;
   if (status === 200) {
     const m = /(?:^|,\s*)(?:s-maxage|max-age)=(\d+)/.exec(cc);
-    if (!m || !(isPrivate || /(^|,\s*)public\b/.test(cc))) return null;
+    if (!m || !(kind === "unverified" ? isPrivate : isPrivate || isPublic)) return null;
     const age = Number(m[1]);
     return age > 0 ? age : null;
   }
-  if ((status === 401 || status === 403 || status === 404) && negativeTtlS > 0) return negativeTtlS;
+  if (negativeTtlS === 0 || kind === "unverified") return null;
+  if (status === 404 || (status === 401 && kind !== "player")) return negativeTtlS;
   return null;
 }
 

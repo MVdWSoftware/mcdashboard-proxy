@@ -1,7 +1,11 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { describe, expect, it } from "vitest";
 import { FallbackStore, RedisStore } from "../src/store.js";
 
-// Runs against a real Redis when REDIS_URL is set (CI starts one).
 describe.skipIf(!process.env.REDIS_URL)("RedisStore", () => {
   it("stores values with a ttl and counts atomically per window", async () => {
     const s = new RedisStore(process.env.REDIS_URL!, "mcdp-test:" + Date.now() + ":");

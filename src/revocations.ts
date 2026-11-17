@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import type { Store } from "./store.js";
 
 const GENERATION_MEMO_MS = 2000;

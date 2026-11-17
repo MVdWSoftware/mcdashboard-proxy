@@ -1,9 +1,11 @@
+<p align="center"><img src="docs/assets/logo.svg" alt="MCDashboard" width="420"></p>
+
 # MCDashboard-proxy
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
 A caching, rate-limiting reverse proxy that sits between the apps and a Minecraft server running the
-[MCDashboard](https://mvdw-software.com) plugin. The Minecraft server stays private; the proxy absorbs
+[MCDashboard](https://mcdashboard.org) plugin. The Minecraft server stays private; the proxy absorbs
 the traffic, so a popular server or a hostile client cannot slow the game down.
 
 ```
@@ -26,21 +28,20 @@ the game has to do. The proxy:
   validated and bounded, clients are rate limited (pairing and uploads far stricter than reads), and the
   number of simultaneous requests towards the plugin is capped, shedding load with `503` instead of queueing.
 - **Follows revocations**: a device revoked in game is refused at once, even for cached answers, through the plugin's event stream or a signed webhook.
-- **Filters tokens** (optional): forged, expired or non-HS256 JWTs are rejected before they reach the plugin,
+- **Filters tokens** (optional): forged, expired or invalid tokens are rejected before they reach the plugin,
   and clients that keep sending them are throttled.
 - **Hides the server**: the Minecraft host's address, headers and error details never reach clients, and
   the plugin only ever sees the proxy.
 - **Scales out**: run several proxies on one Redis; cache and rate-limit counters are shared.
 
-It follows the same API guidelines as the plugin: the public interface is the same OpenAPI contract
-(`/v1`, SenML values, JWT bearer tokens, `ETag`/`Cache-Control`). An app only changes the server address.
-Nothing is transformed, so the proxy never needs to know placeholder names or evaluate templates.
+It follows the same API guidelines as the plugin and transforms nothing, so the proxy never needs to know
+placeholder names or evaluate templates.
 
 ## Quick start
 
 ```sh
 git clone https://github.com/MVdWSoftware/MCDashboard-proxy.git
-cd mcdashboard-proxy
+cd MCDashboard-proxy
 cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
 docker compose up -d
 ```
@@ -84,6 +85,11 @@ threat model.
 Tracks the MCDashboard API `v1`. Routes are checked against `openapi.yaml` of the plugin
 repository in CI (`test/contract.test.ts`), so a new endpoint cannot be silently unreachable.
 
-## License
+## Licence and terms
 
-[MIT](LICENSE) © MVdW-Software. The MCDashboard plugin and apps have their own licences.
+The proxy is free software under the [GNU AGPL v3 licence](LICENSE) © MVdW-Software. It is not a service MVdW-Software runs:
+whoever deploys it operates it and is responsible for running it and for the data it caches.
+
+Use of the MinecraftDashboard app and the licence service is governed by the
+[terms of service](https://mcdashboard.org/en/terms-of-service/) and the
+[privacy statement](https://mcdashboard.org/en/privacy-statement/). The MCDashboard plugin and apps have their own licences.

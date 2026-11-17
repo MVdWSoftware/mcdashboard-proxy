@@ -1,3 +1,6 @@
+# Copyright (c) 2026 MVdW-Software
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
@@ -15,6 +18,5 @@ COPY --from=build /app/dist ./dist
 COPY package.json ./
 USER node
 EXPOSE 8080 9090
-ENV ADMIN_HOST=0.0.0.0
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:9090/healthz || exit 1
 CMD ["node", "dist/index.js"]

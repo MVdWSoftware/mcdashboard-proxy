@@ -2,15 +2,14 @@
   "name": "mcdashboard-proxy",
   "version": "0.1.0",
   "description": "Caching, rate-limiting reverse proxy that shields an MCDashboard Minecraft server from abuse",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "engines": { "node": ">=22" },
-  "main": "dist/index.js",
   "bin": { "mcdashboard-proxy": "dist/index.js" },
   "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "lint": "tsc --noEmit -p .",
     "test": "vitest run",
     "start": "node dist/index.js"

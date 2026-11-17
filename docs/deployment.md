@@ -15,17 +15,20 @@ rather than the game server.
 ## Docker Compose
 
 `docker-compose.yml` starts the proxy and a password-protected Redis (no published port,
-`allkeys-lru`, 128 MB, no persistence: the cache can always be rebuilt). Configure it through `.env`
-([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every variable.
+128 MB, no persistence). The eviction policy is `volatile-ttl`, so a full Redis drops short-lived cache entries
+before the revocation deny list and cache generation; with `allkeys-lru` a revoked device could be served cached
+answers again until its token expires. Configure it through `.env`
+([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every variable. The image runs as
+the unprivileged `node` user and keeps the admin port on the container's loopback (enough for its health check).
 
 ```sh
 docker compose up -d
-curl http://localhost:8080/v1/info
+curl http://localhost:8080/
 ```
 
 ## TLS in front
 
-Tokens are bearer tokens, so use HTTPS. Any terminator works; it must pass `Upgrade` for `/v1/live` and set
+Tokens should never travel in the clear, so use HTTPS. Any terminator works; it must pass `Upgrade` for the live feed and set
 `X-Forwarded-For` to the real client (overwrite, do not append) with its own address in `TRUSTED_PROXIES`.
 Do not enable a second cache there: the proxy already caches correctly.
 
@@ -55,8 +58,10 @@ server {
 }
 ```
 
-Set `TRUSTED_PROXIES=127.0.0.1` for either. Behind Cloudflare, use its published ranges and have the
-terminator forward `CF-Connecting-IP` as `X-Forwarded-For`.
+Set `TRUSTED_PROXIES=127.0.0.1` for either when the proxy runs directly on the host. With the compose file the proxy
+sees the Docker bridge gateway instead (for example `172.17.0.1`; check with `docker network inspect`), so trust that
+address. If the trusted address is wrong, `X-Forwarded-For` is ignored and every client shares one rate-limit budget.
+Behind Cloudflare, use its published ranges and have the terminator forward `CF-Connecting-IP` as `X-Forwarded-For`.
 
 ## Sizing
 
@@ -75,7 +80,8 @@ crosses a network you do not control. Check `mcdp_events_connected` (1 = stream 
 ## Monitoring
 
 Scrape `http://<proxy>:9090/metrics` with Prometheus and use `/readyz` for load balancer checks (it verifies
-the plugin and Redis). Watch the cache hit ratio (`mcdp_cache_total`), `mcdp_rejected_total{reason}` for attacks and
+the plugin and Redis). In Docker, set `ADMIN_HOST=0.0.0.0` for that and keep port 9090 off any published or public
+interface. Watch the cache hit ratio (`mcdp_cache_total`), `mcdp_rejected_total{reason}` for attacks and
 `mcdp_upstream_errors_total` for plugin trouble.
 
 ## Upgrading

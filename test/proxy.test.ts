@@ -1,15 +1,16 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHmac } from "node:crypto";
-import { fakePlugin, get, startProxy } from "./helpers.js";
 import { Revocations } from "../src/revocations.js";
 import { MemoryStore } from "../src/store.js";
+import { fakePlugin, get, jwt as sign, startProxy } from "./helpers.js";
 
 const secret = Buffer.alloc(48, 9);
-const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
-const jwt = (claims: object) => {
-  const body = `${b64({ alg: "HS256", typ: "JWT" })}.${b64(claims)}`;
-  return `${body}.${createHmac("sha256", secret).update(body).digest("base64url")}`;
-};
+const jwt = (claims: Record<string, unknown>) => sign(claims, secret);
 
 type Stop = () => Promise<unknown>;
 const stops: Stop[] = [];
@@ -26,7 +27,7 @@ describe("caching", () => {
   it("serves anonymous public answers from the cache and only asks the plugin once", async () => {
     const { plugin, port } = await setup();
     const a = await get(port, "/v1/values?ids=tps,online");
-    const b = await get(port, "/v1/values?ids=online,tps"); // other order, same entry
+    const b = await get(port, "/v1/values?ids=online,tps");
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
     expect(b.body).toBe(a.body);
@@ -34,7 +35,7 @@ describe("caching", () => {
     expect(a.headers["cache-status"]).toContain("miss");
     expect(b.headers["cache-status"]).toContain("hit");
     expect(b.headers["cache-control"]).toBe("public, max-age=2");
-    expect(b.headers.server).toBeUndefined(); // upstream internals are not leaked
+    expect(b.headers.server).toBeUndefined();
   });
 
   it("answers If-None-Match with 304 from the cache", async () => {
@@ -51,16 +52,16 @@ describe("caching", () => {
     const bob = { authorization: "Bearer bob.tok.en" };
     const a1 = await get(port, "/v1/values?ids=player-name", alice);
     const a2 = await get(port, "/v1/values?ids=player-name", alice);
-    expect(plugin.seen).toHaveLength(1); // second one from the cache
+    expect(plugin.seen).toHaveLength(1);
     expect(a2.headers["cache-status"]).toContain("hit");
-    expect(a2.headers["cache-control"]).toBe("private, max-age=2"); // stays private towards clients
+    expect(a2.headers["cache-control"]).toBe("private, max-age=2");
     expect(a2.body).toBe(a1.body);
     const b1 = await get(port, "/v1/values?ids=player-name", bob);
-    expect(plugin.seen).toHaveLength(2); // Bob does not get Alice's entry
+    expect(plugin.seen).toHaveLength(2);
     expect(b1.body).toContain("bob.tok.en");
     expect(b1.body).not.toContain("alice");
     const anon = await get(port, "/v1/values?ids=player-name");
-    expect(plugin.seen).toHaveLength(3); // anonymous does not get a player's entry either
+    expect(plugin.seen).toHaveLength(3);
     expect(anon.body).not.toContain("tok.en");
     expect(anon.headers["cache-control"]).toContain("public");
   });
@@ -108,13 +109,67 @@ describe("caching", () => {
       return true;
     });
     expect((await get(port, "/v1/info")).status).toBe(200);
-    await new Promise((r) => setTimeout(r, 2100)); // past max-age=2
+    await new Promise((r) => setTimeout(r, 2100));
     down = true;
     const r = await get(port, "/v1/info");
     expect(r.status).toBe(200);
     expect(r.headers["cache-status"]).toContain("stale");
     expect((await get(port, "/v1/dashboard")).status).toBe(502);
     expect(plugin.seen.length).toBeGreaterThan(1);
+  });
+});
+
+describe("cache poisoning", () => {
+  it("never remembers a 403, which the plugin answers for a User-Agent it refuses", async () => {
+    const { plugin, port } = await setup({}, (req, res) => {
+      if (req.headers["user-agent"] !== "bad") return false;
+      res.writeHead(403, { "content-type": "application/json" }).end('{"error":"unsupported client"}');
+      return true;
+    });
+    expect((await get(port, "/v1/info", { "user-agent": "bad" })).status).toBe(403);
+    expect((await get(port, "/v1/info", { "user-agent": "MCDashboard/1.0.0 (ios)" })).status).toBe(200);
+    expect(plugin.seen).toHaveLength(2);
+  });
+
+  it("does not serve one device's 401 to the player's other devices", async () => {
+    const exp = Date.now() / 1000 + 60;
+    const phone = "Bearer " + jwt({ typ: "access", sub: "phone", player: "uuid-1", exp });
+    const { plugin, port } = await setup({ MCD_JWT_SECRET: secret.toString("base64") }, (req, res) => {
+      if (req.headers.authorization !== phone) return false;
+      res.writeHead(401, { "content-type": "application/json" }).end('{"error":"token revoked"}');
+      return true;
+    });
+    expect((await get(port, "/v1/values?ids=player-name", { authorization: phone })).status).toBe(401);
+    const tablet = { authorization: "Bearer " + jwt({ typ: "access", sub: "tablet", player: "uuid-1", exp }) };
+    expect((await get(port, "/v1/values?ids=player-name", tablet)).status).toBe(200);
+    expect(plugin.seen).toHaveLength(2);
+  });
+
+  it("does not store public answers per unverified token, so random tokens cannot fill the cache", async () => {
+    const { plugin, port } = await setup({}, (req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=60" }).end("[]");
+      return true;
+    });
+    for (let i = 0; i < 3; i++) await get(port, "/v1/info", { authorization: "Bearer junk.tok.en" });
+    expect(plugin.seen).toHaveLength(3);
+  });
+
+  it("asks the plugin only in a language the cache key tells apart", async () => {
+    const { plugin, port } = await setup({ LANGUAGES: "en,nl" });
+    await get(port, "/v1/dashboards", { "accept-language": "pt-BR,pt;q=0.9" });
+    await get(port, "/v1/dashboard", { "accept-language": "nl-BE,pt;q=0.9" });
+    expect(plugin.seen[0]!.headers["accept-language"]).toBeUndefined();
+    expect(plugin.seen[1]!.headers["accept-language"]).toBe("nl");
+  });
+
+  it("does not store answers that vary on a header outside the key", async () => {
+    const { plugin, port } = await setup({}, (req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=60", vary: "User-Agent" }).end("[]");
+      return true;
+    });
+    await get(port, "/v1/info");
+    await get(port, "/v1/info");
+    expect(plugin.seen).toHaveLength(2);
   });
 });
 
@@ -182,6 +237,34 @@ describe("protection", () => {
     expect(h.cookie).toBeUndefined();
     expect(h["x-evil"]).toBeUndefined();
   });
+
+  it("answers 400 to a request target it cannot parse", async () => {
+    const { plugin, port } = await setup();
+    const sock = connect(port, "127.0.0.1");
+    stops.push(async () => sock.destroy());
+    const head = await new Promise<string>((resolve) => {
+      sock.on("connect", () => sock.write("GET http://[ HTTP/1.1\r\nHost: x\r\n\r\n"));
+      sock.once("data", (d) => resolve(d.toString()));
+    });
+    expect(head).toMatch(/^HTTP\/1.1 400/);
+    expect(plugin.seen).toHaveLength(0);
+  });
+
+  it("closes the connection after refusing a body it did not read", async () => {
+    const { port } = await setup({ MAX_BODY_BYTES: "100" });
+    const r = await get(port, "/v1/auth", { "content-type": "application/json" }, "POST", "x".repeat(101));
+    expect(r.status).toBe(413);
+    expect(r.headers.connection).toBe("close");
+  });
+
+  it("counts each rejection once, under its reason", async () => {
+    const { proxy, port } = await setup({ RATE_READ: "1" });
+    await get(port, "/v1/info");
+    expect((await get(port, "/v1/info")).status).toBe(429);
+    const metrics = proxy.metrics.render();
+    expect(metrics).toContain('mcdp_rejected_total{reason="rate_limit"} 1');
+    expect(metrics).not.toContain('reason="429"');
+  });
 });
 
 describe("revoked devices", () => {
@@ -197,7 +280,7 @@ describe("revoked devices", () => {
     const phone = device("phone");
     const tablet = device("tablet");
     expect((await get(p.port, "/v1/values?ids=player-name", phone)).status).toBe(200);
-    expect((await get(p.port, "/v1/values?ids=player-name", tablet)).headers["cache-status"]).toContain("hit"); // shared player scope
+    expect((await get(p.port, "/v1/values?ids=player-name", tablet)).headers["cache-status"]).toContain("hit");
 
     await revocations.deny("phone");
     const r = await get(p.port, "/v1/values?ids=player-name", phone);
@@ -205,7 +288,7 @@ describe("revoked devices", () => {
     expect(JSON.parse(r.body).error).toBe("device revoked");
     expect(r.headers["www-authenticate"]).toContain("invalid_token");
     expect((await get(p.port, "/v1/values?ids=player-name", tablet)).status).toBe(200);
-    expect(plugin.seen).toHaveLength(1); // the revoked request never reached the plugin, the other device still hits the cache
+    expect(plugin.seen).toHaveLength(1);
   });
 
   it("also works without the secret, by the device id in the token", async () => {
@@ -233,6 +316,6 @@ describe("revoked devices", () => {
     await revocations.bumpGeneration();
     await get(p.port, "/v1/values?ids=player-name", h);
     await get(p.port, "/v1/info");
-    expect(plugin.seen).toHaveLength(3); // only the per-player one went back to the plugin
+    expect(plugin.seen).toHaveLength(3);
   });
 });

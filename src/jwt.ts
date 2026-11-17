@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type TokenCheck = { ok: true; deviceId: string; player: string; expiresAt: number } | { ok: false; reason: string };

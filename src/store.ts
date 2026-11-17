@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 MVdW-Software
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 import { Redis } from "ioredis";
 
 /** The small key/value surface the proxy needs. Redis in production, memory for tests and single nodes. */
@@ -52,7 +57,7 @@ export class MemoryStore implements Store {
     const now = Date.now();
     for (const [k, e] of this.data) if (e.until <= now) this.data.delete(k);
     for (const [k, c] of this.counters) if (c.until <= now) this.counters.delete(k);
-    // still full: drop the oldest insertions so memory stays bounded
+    // Still full: drop the oldest insertions so memory stays bounded.
     for (const m of [this.data, this.counters] as Map<string, unknown>[]) {
       while (m.size >= MAX_MEMORY_ENTRIES) m.delete(m.keys().next().value as string);
     }
@@ -68,7 +73,8 @@ export class RedisStore implements Store {
 
   constructor(url: string, private readonly prefix: string) {
     this.redis = new Redis(url, { maxRetriesPerRequest: 1, commandTimeout: 300, connectTimeout: 2000, retryStrategy: (n) => Math.min(n * 200, 2000) });
-    this.redis.on("error", () => {}); // outages are handled by FallbackStore; avoid unhandled 'error' events
+    // Outages are handled by FallbackStore; without a listener an error event would crash the process.
+    this.redis.on("error", () => {});
   }
 
   async get(key: string): Promise<Buffer | null> {

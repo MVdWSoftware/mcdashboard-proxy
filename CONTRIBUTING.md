@@ -35,4 +35,4 @@ Minecraft server.
 1. Open an issue first for larger changes.
 2. Add or update tests; `pnpm lint && pnpm test` must pass.
 3. Describe the behaviour change and add an entry under *Unreleased* in the changelog.
-4. By contributing you agree your work is released under the [MIT licence](LICENSE).
+4. By contributing you agree your work is released under the [GNU AGPL v3 licence](LICENSE).

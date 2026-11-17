@@ -13,7 +13,7 @@ All settings are environment variables. Invalid values stop the proxy at startup
 | `TUNNEL_PATH` | `/tunnel` | Where the plugin connects |
 | `TUNNEL_DEAD_S` | `60` | Silence after which the tunnel is dropped as dead; see [health checks](tunnel.md#health-checks-and-reconnection) |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` / `8080` | Public listener (put TLS in front) |
-| `ADMIN_HOST` / `ADMIN_PORT` | `127.0.0.1` / `9090` | `/healthz`, `/readyz`, `/metrics`; `ADMIN_PORT=0` disables it. Never expose it publicly |
+| `ADMIN_HOST` / `ADMIN_PORT` | `127.0.0.1` / `9090` | `/healthz`, `/readyz`, `/tunnelz`, `/metrics`; `ADMIN_PORT=0` disables it. Never expose it publicly; in a container set `ADMIN_HOST=0.0.0.0` only when something on the container network scrapes it |
 | `REDIS_URL` | unset | e.g. `redis://:password@redis:6379`. Unset = in-memory (single node) |
 | `REDIS_KEY_PREFIX` | `mcdp:` | Lets several proxies share one Redis without clashing |
 
@@ -32,8 +32,8 @@ proxy's address to the plugin's `security.trusted-proxies`. IPv6 clients are lim
 | --- | --- | --- |
 | `RATE_WINDOW_S` | `60` | Window length |
 | `RATE_READ` | `300` | `GET` routes and live handshakes |
-| `RATE_AUTH` | `10` | `POST /v1/auth`, `/v1/auth/refresh` (same as the plugin) |
-| `RATE_WRITE` | `6` | dashboard upload, `DELETE /v1/devices/self` |
+| `RATE_AUTH` | `10` | Pairing and token refresh (same as the plugin) |
+| `RATE_WRITE` | `6` | Dashboard upload and device unpairing |
 | `RATE_BAD_TOKEN` | `20` | invalid tokens before the client is answered with `429` |
 | `MAX_CONCURRENT_PER_IP` | `20` | simultaneous requests per client |
 | `MAX_LIVE_PER_IP` / `MAX_LIVE_TOTAL` | `5` / `500` | open live-feed connections |
@@ -54,7 +54,7 @@ Over the limit the answer is `429` with `Retry-After`.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `STALE_IF_ERROR_S` | `300` | How long past expiry a copy may be served while the plugin fails or is restarting |
-| `NEGATIVE_TTL_S` | `5` | How long `401`/`403`/`404` answers for anonymous requests are remembered; `0` disables |
+| `NEGATIVE_TTL_S` | `5` | How long `404` (and `401` outside a player scope) answers without cache headers are remembered; `0` disables. See [negative caching](architecture.md#cache-rules) |
 | `CACHE_MAX_BODY_BYTES` | `524288` | Larger answers are not cached |
 | `LANGUAGES` | `en,nl,fr,de,es` | Languages the plugin supports; `Accept-Language` is reduced to these for the cache key |
 
@@ -66,25 +66,27 @@ Over the limit the answer is `429` with `Retry-After`.
 
 With the secret set, requests with an invalid or expired `Authorization` header are answered `401` at the
 proxy, and per-player cache entries are keyed by the player, so a player's devices share them. Without it,
-tokens are passed through unchecked and entries are keyed per token. Revoked devices are caught by the plugin
-on the next cache miss.
+tokens are passed through unchecked and entries are keyed per token. Revoked devices are refused through the
+[revocation feed](#device-revocations), and by the plugin on every cache miss.
 
 ## Device revocations
 
 Without these, a revoked device can still be served what is cached for its player until that entry expires (at most
-one `min-interval`). With either, it is refused at once. Details and the plugin side: the MCDashboard `docs/events.md`.
+one `min-interval`). With either, it is refused at once. Details and the plugin side: [plugin `docs/events.md`](https://github.com/MVdWSoftware/MCDashboard-plugin/blob/main/docs/events.md).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EVENTS_TOKEN` | unset | The plugin's `events.token`. The proxy follows `GET /v1/events` on `UPSTREAM_URL`, reconnecting with `Last-Event-ID` |
+| `EVENTS_TOKEN` | unset | The plugin's `events.token`. The proxy follows the device event stream, reconnecting automatically |
 | `WEBHOOK_SECRET` | unset | The `secret` of the plugin's `events.webhooks` entry (16+ characters) |
-| `WEBHOOK_PORT` / `WEBHOOK_HOST` | `0` (off) / `127.0.0.1` | Listener for the webhook receiver, `POST /hooks/mcdashboard`. Reachable by the Minecraft server only |
+| `WEBHOOK_PORT` / `WEBHOOK_HOST` | `0` (off) / `127.0.0.1` | Listener for the webhook receiver. Reachable by the Minecraft server only |
 | `WEBHOOK_TOLERANCE_S` | `300` | Largest accepted difference between the webhook timestamp and the proxy's clock |
 | `REVOCATION_TTL_S` | `3600` | How long a revoked device id is remembered; at least the plugin's `security.access-token-timeout` |
 
 ## Metrics
 
 `/metrics` (admin port, Prometheus text): `mcdp_cache_total{result,route}`, `mcdp_coalesced_total`,
-`mcdp_stale_served_total`, `mcdp_upstream_total`, `mcdp_upstream_errors_total`,
-`mcdp_rejected_total{reason}` (`revoked`, `rate_limit`, ...), `mcdp_revocations_total`, `mcdp_events_connected`, `mcdp_events_resets_total`,
-`mcdp_webhook_rejected_total{status}`, `mcdp_live_total`, `mcdp_redis_up`, `mcdp_store_fallback_total`.
+`mcdp_stale_served_total`, `mcdp_upstream_total`, `mcdp_upstream_errors_total`, `mcdp_errors_total`,
+`mcdp_rejected_total{reason}` (one count per refusal: `rate_limit`, `concurrency`, `bad_token`, `revoked`,
+`upstream_saturated`, `live_connections`, or the status code), `mcdp_revocations_total`, `mcdp_events_connected`,
+`mcdp_events_resets_total`, `mcdp_webhook_rejected_total{status}`, `mcdp_live_total`, `mcdp_redis_up`,
+`mcdp_store_fallback_total`, and the `mcdp_tunnel_*` series of the [tunnel](tunnel.md#health-checks-and-reconnection).

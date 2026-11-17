@@ -1,5 +1,10 @@
+# Copyright (c) 2026 MVdW-Software
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -9,8 +14,15 @@ jobs:
         ports: ["6379:6379"]
     env:
       REDIS_URL: redis://localhost:6379
+      MCD_OPENAPI: contract/openapi.yaml
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MVdWSoftware/MCDashboard-plugin
+          path: contract
+          sparse-checkout: openapi.yaml
+          sparse-checkout-cone-mode: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }

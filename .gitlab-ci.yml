@@ -1,3 +1,6 @@
+# Copyright (c) 2026 MVdW-Software
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 stages: [test]
 
 test:
@@ -8,7 +11,9 @@ test:
       alias: redis
   variables:
     REDIS_URL: redis://redis:6379
+    MCD_OPENAPI: contract/openapi.yaml
   script:
+    - git clone --depth 1 https://github.com/MVdWSoftware/MCDashboard-plugin.git contract
     - corepack enable && pnpm install --frozen-lockfile
     - pnpm lint
     - pnpm build
