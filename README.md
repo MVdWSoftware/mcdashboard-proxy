@@ -90,6 +90,6 @@ repository in CI (`test/contract.test.ts`), so a new endpoint cannot be silently
 The proxy is free software under the [GNU AGPL v3 licence](LICENSE) © MVdW-Software. It is not a service MVdW-Software runs:
 whoever deploys it operates it and is responsible for running it and for the data it caches.
 
-Use of the MinecraftDashboard app and the licence service is governed by the
+Use of the MCDashboard app and the licence service is governed by the
 [terms of service](https://mcdashboard.org/en/terms-of-service/) and the
 [privacy statement](https://mcdashboard.org/en/privacy-statement/). The MCDashboard plugin and apps have their own licences.
