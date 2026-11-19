@@ -23,6 +23,7 @@ corepack enable
 pnpm install
 pnpm lint      # type check
 pnpm test      # unit and integration tests, no Redis needed
+pnpm test:coverage   # same, plus coverage; fails below 100% lines, branches, functions and statements of src/ (report in coverage/)
 REDIS_URL=redis://localhost:6379 pnpm test   # also runs the Redis tests
 pnpm build
 ```
@@ -33,6 +34,6 @@ Minecraft server.
 ## Pull requests
 
 1. Open an issue first for larger changes.
-2. Add or update tests; `pnpm lint && pnpm test` must pass.
+2. Add or update tests; `pnpm lint && pnpm test:coverage && pnpm build` must pass; `src/` stays at 100% coverage (only `src/index.ts`, the process entrypoint, is excluded).
 3. Describe the behaviour change and add an entry under *Unreleased* in the changelog.
 4. By contributing you agree your work is released under the [GNU AGPL v3 licence](LICENSE).

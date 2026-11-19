@@ -43,4 +43,21 @@ describe("route allowlist", () => {
     expect(canonicalLanguages("zz", ["en", "nl"])).toBe("");
     expect(canonicalLanguages(undefined, ["en"])).toBe("");
   });
+  it("covers the remaining validators and methods", () => {
+    expect(m("HEAD", "/v1/info").kind).toBe("route");
+    expect(m("GET", "/v1/placeholders?ids=").kind).toBe("route");
+    expect(m("GET", "/v1/placeholders?ids=a,b").kind).toBe("route");
+    expect(m("GET", "/v1/placeholders?ids=a,b%20c")).toEqual({ kind: "badRequest", message: "ids contains an invalid placeholder id" });
+    expect(m("GET", "/v1/values?ids=")).toEqual({ kind: "badRequest", message: "ids must list 1-100 placeholder ids" });
+    expect(m("GET", "/v1/placeholders?q=" + "x".repeat(65))).toEqual({ kind: "badRequest", message: "q is too long" });
+    expect(m("GET", "/v1/placeholders?limit=0").kind).toBe("badRequest");
+    expect(m("GET", "/v1/history/tps?since=abc").kind).toBe("badRequest");
+  });
+
+  it("orders query keys and honours q weights", () => {
+    expect(canonicalQuery(new URLSearchParams("b=1&a=2&b=0&c=3"))).toBe("a=2&b=1&b=0&c=3");
+    expect(canonicalQuery(new URLSearchParams("a=1&a=0"))).toBe("a=1&a=0");
+    expect(canonicalLanguages("en;q=0, nl;q=0.5, de, fr; q=0.7, es;level=1", ["en", "nl", "de", "fr", "es"])).toBe("de,es,fr,nl");
+    expect(canonicalLanguages("en,en-GB,EN", ["en"])).toBe("en");
+  });
 });

@@ -56,7 +56,7 @@ export class Upstream implements UpstreamPort {
             if (size > MAX_RESPONSE_BYTES) req.destroy(new Error("upstream response too large"));
             else chunks.push(c);
           });
-          res.on("end", () => resolve({ status: res.statusCode ?? 502, headers: pick(res.headers), body: Buffer.concat(chunks) }));
+          res.on("end", () => resolve({ status: res.statusCode as number, headers: pick(res.headers), body: Buffer.concat(chunks) }));
           res.on("error", reject);
         },
       );

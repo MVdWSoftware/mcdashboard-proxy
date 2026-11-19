@@ -17,5 +17,13 @@ test:
     - corepack enable && pnpm install --frozen-lockfile
     - pnpm lint
     - pnpm build
-    - pnpm test
+    - pnpm test:coverage  # thresholds (100%) are in vitest.config.ts
     - pnpm audit --prod --audit-level high
+  coverage: '/All files\s*\|\s*([\d.]+)/'
+  artifacts:
+    when: always
+    paths: [coverage/]
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml

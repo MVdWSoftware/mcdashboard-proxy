@@ -130,7 +130,6 @@ export class WsConnection {
         len = Number(big);
         offset = 10;
       }
-      if (len > MAX_MESSAGE) return this.close(1009);
       const end = offset + 4 + len;
       if (buffer.length < end) return this.wait(buffer, end);
       const mask = buffer.subarray(offset, offset + 4);

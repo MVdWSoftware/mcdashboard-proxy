@@ -77,7 +77,7 @@ export function match(method: string, path: string, params: URLSearchParams): Ma
     if (!m) continue;
     const route = def.methods[method === "HEAD" ? "GET" : method];
     if (!route) return { kind: "methodNotAllowed", allow: Object.keys(def.methods) };
-    if (def.param && !def.param(m[1] ?? "")) return { kind: "notFound" };
+    if (def.param && !def.param(m[1] as string)) return { kind: "notFound" };
     const seen = new Set<string>();
     for (const [k, v] of params) {
       const check = def.query?.[k];
@@ -108,9 +108,9 @@ export function canonicalQuery(params: URLSearchParams): string {
 export function canonicalLanguages(header: string | undefined, supported: string[]): string {
   if (!header) return "";
   const tags = header.split(",").slice(0, 20).map((part, i) => {
-    const [tag = "", ...ps] = part.trim().split(";");
+    const [tag, ...ps] = part.trim().split(";") as [string, ...string[]];
     const q = ps.map((p) => /^\s*q=([\d.]+)\s*$/.exec(p)?.[1]).find(Boolean);
-    return { lang: tag.trim().toLowerCase().split("-")[0] ?? "", q: q === undefined ? 1 : Number(q), i };
+    return { lang: tag.trim().toLowerCase().split("-")[0] as string, q: q === undefined ? 1 : Number(q), i };
   });
   const out: string[] = [];
   for (const t of tags.filter((t) => t.q > 0).sort((a, b) => b.q - a.q || a.i - b.i)) {

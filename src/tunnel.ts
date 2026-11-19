@@ -109,7 +109,6 @@ export class TunnelHub implements UpstreamPort, ChannelHost {
       },
       () => {
         clearTimeout(helloTimer);
-        if (this.conn !== conn) return;
         this.conn = null;
         this.drop();
         this.log("tunnel: disconnected");

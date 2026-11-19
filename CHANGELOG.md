@@ -17,6 +17,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The Docker image keeps the admin port on loopback (set `ADMIN_HOST=0.0.0.0` to scrape it from another container).
 
 ### Fixed
+- Dead defensive branches removed (unreachable `??` fallbacks, an impossible length check in the WebSocket reader, a stale-connection guard in the tunnel) so the coverage numbers are real.
 - `mcdp_rejected_total` counts each refusal once, under its reason.
 - Unparsable request targets are `400` instead of `500`; refused bodies close the connection.
 - `MAX_LIVE_TOTAL` holds under concurrent handshakes.
@@ -28,6 +29,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `src/tunnel.ts` and `src/proxy.ts` split into smaller modules (see [docs/architecture.md](docs/architecture.md#modules)); licence headers; README logo and licence and terms section.
 
 ### Added
+- `pnpm test:coverage` (`@vitest/coverage-v8`): 100% line, branch, function and statement coverage of `src/` (except the process entrypoint `src/index.ts`) is enforced; CI publishes the report.
 - Reverse tunnel (`TUNNEL_TOKEN`, `TUNNEL_ALLOWED_IPS`): the plugin dials in over one WebSocket that carries REST requests, live-feed streams and device events, so the proxy never connects to the server. Health checks (pings, dead-peer drop, hello timeout), `/tunnelz` on the admin port and `mcdp_tunnel_*` metrics. See [docs/tunnel.md](docs/tunnel.md).
 - Device revocation feed: follows the plugin's `GET /v1/events` stream (`EVENTS_TOKEN`) and/or receives its signed webhooks (`WEBHOOK_*`). Revoked devices are refused at once on every node; the per-player cache is dropped whenever a revocation might have been missed.
 

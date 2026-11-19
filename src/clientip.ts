@@ -14,9 +14,9 @@ export class AddressList {
   constructor(entries: string[], name: string) {
     this.empty = entries.length === 0;
     for (const e of entries) {
-      const [addr, bits] = e.split("/");
-      const family = isIP(addr ?? "");
-      if (!addr || !family) throw new Error(`${name}: invalid address ${e}`);
+      const [addr = "", bits] = e.split("/");
+      const family = isIP(addr);
+      if (!family) throw new Error(`${name}: invalid address ${e}`);
       const type = family === 6 ? "ipv6" : "ipv4";
       if (bits === undefined) this.list.addAddress(addr, type);
       else this.list.addSubnet(addr, Number(bits), type);

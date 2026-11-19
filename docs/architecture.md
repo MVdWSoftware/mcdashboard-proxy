@@ -12,6 +12,7 @@
 | `src/cache.ts` | What may be stored and for how long, cache entries in the store |
 | `src/respond.ts` | Error and pass-through responses, bounded body reading |
 | `src/clientip.ts` | Client address behind trusted proxies, address lists, rate-limit buckets |
+| `src/metrics.ts` | Prometheus counters |
 | `src/ratelimit.ts`, `src/store.ts` | Fixed-window counters and concurrency gates; Redis, memory and fallback store |
 | `src/jwt.ts`, `src/revocations.ts`, `src/events.ts`, `src/webhook.ts` | Edge token check, deny list and cache generation, SSE client and webhook receiver |
 | `src/upstream.ts` | HTTP pool towards the plugin |

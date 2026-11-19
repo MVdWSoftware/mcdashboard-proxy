@@ -6,7 +6,7 @@ All settings are environment variables. Invalid values stop the proxy at startup
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `UPSTREAM_URL` | `http://127.0.0.1:1553` | The plugin's REST port (`server.port`). Not used with the [tunnel](tunnel.md) |
+| `UPSTREAM_URL` | `http://127.0.0.1:1553` | The plugin's REST port (`server.port`). Plain HTTP: set `server.tls.mode: off` and `server.host: 127.0.0.1` in the plugin, because the plugin serves HTTPS by default. Not used with the [tunnel](tunnel.md) |
 | `UPSTREAM_LIVE_URL` | `http://127.0.0.1:1554` | The plugin's WebSocket port (`server.websocket.port`). Not used with the tunnel |
 | `TUNNEL_TOKEN` | unset | API key (32+ chars) of the [reverse tunnel](tunnel.md): the plugin dials in over one WebSocket |
 | `TUNNEL_ALLOWED_IPS` | empty | Addresses/CIDRs allowed to open the tunnel (recommended) |
@@ -88,5 +88,5 @@ one `min-interval`). With either, it is refused at once. Details and the plugin 
 `mcdp_stale_served_total`, `mcdp_upstream_total`, `mcdp_upstream_errors_total`, `mcdp_errors_total`,
 `mcdp_rejected_total{reason}` (one count per refusal: `rate_limit`, `concurrency`, `bad_token`, `revoked`,
 `upstream_saturated`, `live_connections`, or the status code), `mcdp_revocations_total`, `mcdp_events_connected`,
-`mcdp_events_resets_total`, `mcdp_webhook_rejected_total{status}`, `mcdp_live_total`, `mcdp_redis_up`,
+`mcdp_events_connects_total`, `mcdp_events_resets_total`, `mcdp_webhook_rejected_total{status}`, `mcdp_live_total`, `mcdp_redis_up`,
 `mcdp_store_fallback_total`, and the `mcdp_tunnel_*` series of the [tunnel](tunnel.md#health-checks-and-reconnection).

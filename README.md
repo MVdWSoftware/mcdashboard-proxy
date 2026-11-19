@@ -76,7 +76,7 @@ threat model.
 | [docs/tunnel.md](docs/tunnel.md) | the reverse tunnel: the plugin dials in over one WebSocket (key, address allowlist, protocol) |
 | [docs/deployment.md](docs/deployment.md) | Docker, nginx/Caddy in front, sizing, monitoring |
 | [docs/security.md](docs/security.md) | threat model and hardening checklist |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | development and pull requests |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | development, tests (`pnpm test:coverage`, 100% of `src/`) and pull requests |
 | [SECURITY.md](SECURITY.md) | reporting vulnerabilities |
 | [CHANGELOG.md](CHANGELOG.md) | releases |
 

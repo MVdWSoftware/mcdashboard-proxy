@@ -80,13 +80,13 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
   const onLive = liveUpgrade(config, limiter, clients, metrics, tunnel);
   server.on("upgrade", (req: IncomingMessage, socket, head: Buffer) => {
     socket.on("error", () => socket.destroy());
-    if (onTunnel && (req.url ?? "").split("?")[0] === config.tunnelPath) onTunnel(req, socket, head);
+    if (onTunnel && (req.url as string).split("?")[0] === config.tunnelPath) onTunnel(req, socket, head);
     else onLive(req, socket, head);
   });
 
   async function handle(req: IncomingMessage, res: ServerResponse, ip: string, key: string): Promise<void> {
-    const method = req.method ?? "GET";
-    const rawUrl = req.url ?? "/";
+    const method = req.method as string;
+    const rawUrl = req.url as string;
     if (rawUrl.length > config.maxUrlLength) throw new HttpError(414, "url too long");
     let url: URL;
     try {
@@ -115,8 +115,8 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
       const body = await readBody(req, config.maxBodyBytes);
       return reply(res, method, await callPlugin(method, target, forward, body), "bypass");
     }
-    if (!route.cacheable || (method !== "GET" && method !== "HEAD")) {
-      const r = await callPlugin(method === "HEAD" ? "GET" : method, target, forward);
+    if (!route.cacheable) {
+      const r = await callPlugin(method, target, forward);
       return reply(res, method, r, "bypass", req.headers["if-none-match"]);
     }
     await serveCached(req, res, method, url.pathname, query, target, forward, route, scope);
@@ -173,14 +173,16 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
   async function callPlugin(method: string, target: string, headers: Record<string, string>, body?: Buffer): Promise<UpstreamResponse> {
     if (!toPlugin.enter("all")) throw new HttpError(503, "server busy", { "retry-after": "1" }, "upstream_saturated");
     metrics.inc("mcdp_upstream_total");
+    let r: UpstreamResponse;
     try {
-      return await upstream.request(method, target, headers, body);
+      r = await upstream.request(method, target, headers, body);
     } catch {
+      toPlugin.leave("all");
       metrics.inc("mcdp_upstream_errors_total");
       throw new HttpError(502, "server unavailable", { "retry-after": "5" });
-    } finally {
-      toPlugin.leave("all");
     }
+    toPlugin.leave("all");
+    return r;
   }
 
   function reply(res: ServerResponse, method: string, r: UpstreamResponse, status: string, inm?: string): void {

@@ -30,7 +30,7 @@ export function liveUpgrade(config: Config, limiter: RateLimiter, clients: Clien
   let total = 0;
 
   return (req, socket, head) => {
-    const path = (req.url ?? "").split("?")[0];
+    const path = (req.url as string).split("?")[0];
     const key = webSocketKey(req);
     if (path !== "/v1/live" || !key) return refuseUpgrade(socket, "404 Not Found");
     const client = bucket(clients.of(req));
