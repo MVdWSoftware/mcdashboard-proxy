@@ -90,7 +90,9 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     if (rawUrl.length > config.maxUrlLength) throw new HttpError(414, "url too long");
     let url: URL;
     try {
-      url = new URL(rawUrl, "http://proxy");
+      // Only the path of a request target is used; the base just makes relative targets parseable, so no scheme
+      // (or reachable host) is involved and none is contacted.
+      url = new URL(rawUrl, "https://proxy.invalid");
     } catch {
       throw new HttpError(400, "bad request target");
     }

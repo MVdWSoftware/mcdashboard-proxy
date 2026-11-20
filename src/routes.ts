@@ -96,7 +96,8 @@ export function match(method: string, path: string, params: URLSearchParams): Ma
 export function canonicalQuery(params: URLSearchParams): string {
   const p = new URLSearchParams(params);
   const idList = p.get("ids");
-  if (idList) p.set("ids", idList.split(",").sort().join(","));
+  // Explicit code-point comparator (typescript:S2871): same order as the plugin and as bare sort() produced.
+  if (idList) p.set("ids", idList.split(",").sort((a, b) => Number(a > b) - Number(a < b)).join(","));
   const entries = [...p].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return new URLSearchParams(entries).toString();
 }

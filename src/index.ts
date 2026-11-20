@@ -77,7 +77,14 @@ const shutdown = () => {
   stream?.stop();
   webhook?.close();
   admin.close();
-  proxy.close().then(() => store.close()).finally(() => process.exit(0));
+  proxy
+    .close()
+    .then(() => store.close())
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error("shutdown failed:", err);
+      process.exit(1);
+    });
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 process.on("SIGTERM", shutdown);
