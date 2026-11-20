@@ -112,10 +112,14 @@ describe("event stream edge cases", () => {
       res.write(`id: 7\nevent: other\ndata: {}\n\n`);
     });
     const r = new Revocations(new MemoryStore(), 60);
-    const stream = new EventStream({ url, token: "t", revocations: r, metrics: new Metrics() });
+    const metrics = new Metrics();
+    const stream = new EventStream({ url, token: "t", revocations: r, metrics });
     closers.push(() => stream.stop());
     stream.start();
     await wait(() => r.isDenied("noid"));
+    // Undecodable data is skipped, an event without id is applied, and an unknown event is ignored.
+    expect(await r.isDenied("noid")).toBe(true);
+    expect(metrics.render()).toContain("mcdp_revocations_total 1\n");
   });
 
   it("retries when the answer is not an event stream", async () => {
@@ -144,10 +148,13 @@ describe("event stream edge cases", () => {
   it("copes with https endpoints that are not reachable, and with stop before start", async () => {
     const stream = new EventStream({ url: new URL("https://127.0.0.1:1"), token: "t", revocations: new Revocations(new MemoryStore(), 60), metrics: new Metrics() });
     stream.stop();
+    expect(stream.connected).toBe(false);
     const s2 = new EventStream({ url: new URL("https://127.0.0.1:1"), token: "t", revocations: new Revocations(new MemoryStore(), 60), metrics: new Metrics() });
     s2.start();
     await new Promise((r) => setTimeout(r, 100));
+    expect(s2.connected).toBe(false);
     s2.stop();
     await new Promise((r) => setTimeout(r, 50));
+    expect(s2.connected).toBe(false);
   });
 });

@@ -15,7 +15,8 @@ export class Metrics {
 
   render(gauges: Record<string, number> = {}): string {
     const lines: string[] = [];
-    for (const [k, v] of [...this.counters].sort()) lines.push(`${k} ${v}`);
+    // Explicit code-point comparator (typescript:S2871); it is the order bare sort() used, so output stays stable.
+    for (const [k, v] of [...this.counters].sort(([a], [b]) => Number(a > b) - Number(a < b))) lines.push(`${k} ${v}`);
     for (const [k, v] of Object.entries(gauges)) lines.push(`${k} ${v}`);
     return lines.join("\n") + "\n";
   }
