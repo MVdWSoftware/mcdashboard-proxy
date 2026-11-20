@@ -24,7 +24,7 @@ import { tunnelUpgrade } from "./tunnel-upgrade.js";
 import { Upstream } from "./upstream.js";
 import type { UpstreamPort, UpstreamResponse } from "./upstream.js";
 
-const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "if-none-match", "user-agent"];
+const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "if-none-match", "user-agent", "x-mcdashboard-player"];
 
 export interface Proxy {
   server: Server;

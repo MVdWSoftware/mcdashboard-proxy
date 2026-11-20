@@ -231,9 +231,10 @@ describe("protection", () => {
 
   it("does not forward arbitrary client headers and overwrites X-Forwarded-For", async () => {
     const { plugin, port } = await setup();
-    await get(port, "/v1/info", { "x-forwarded-for": "6.6.6.6", cookie: "a=b", "x-evil": "1" });
+    await get(port, "/v1/info", { "x-forwarded-for": "6.6.6.6", cookie: "a=b", "x-evil": "1", "x-mcdashboard-player": "Steve" });
     const h = plugin.seen[0]!.headers;
     expect(h["x-forwarded-for"]).toBe("127.0.0.1");
+    expect(h["x-mcdashboard-player"]).toBe("Steve");
     expect(h.cookie).toBeUndefined();
     expect(h["x-evil"]).toBeUndefined();
   });
