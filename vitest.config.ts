@@ -12,7 +12,7 @@ export default defineConfig({
       include: ["src/**"],
       // The process entrypoint only wires config, signals and listen(); everything it calls is tested.
       exclude: ["src/index.ts"],
-      reporter: ["text", "cobertura", "html"],
+      reporter: ["text", "cobertura", "lcov", "html"],
       thresholds: { lines: 100, functions: 100, branches: 100, statements: 100 },
     },
   },

@@ -3,6 +3,11 @@
 
 stages: [test]
 
+include:
+  - project: mvdw/ci-templates
+    ref: v1
+    file: sonar.yml
+
 test:
   stage: test
   image: node:22
