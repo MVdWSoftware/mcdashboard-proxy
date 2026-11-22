@@ -1,10 +1,23 @@
-name: Feature request
-description: Suggest an improvement
-labels: [enhancement]
+name: Feature request (proxy)
+description: Suggest an improvement to the MCDashboard proxy (the caching reverse proxy and tunnel endpoint)
+labels: [enhancement, proxy]
 body:
   - type: markdown
     attributes:
-      value: Thanks for the idea. Please search the existing issues first.
+      value: |
+        ## Scope: MCDashboard proxy (the caching reverse proxy and tunnel endpoint)
+        This tracker is **only** for the MCDashboard proxy (the caching reverse proxy and tunnel endpoint).
+        For the MCDashboard app, the portal (accounts, licences, billing), the website, the WordPress plugin or the Minecraft plugin itself, use https://mcdashboard.org/en/support/ or write to
+        support+mcdashboard@mvdw-software.com. Such issues are closed here without a reply.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This is about the MCDashboard proxy (the caching reverse proxy and tunnel endpoint), not the app, the portal or another connected service.
+          required: true
+        - label: I searched the existing issues and the docs.
+          required: true
   - type: textarea
     id: problem
     attributes:

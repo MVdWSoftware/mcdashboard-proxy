@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Problem with the app, the portal, a licence or billing
+    url: https://mcdashboard.org/en/support/
+    about: This tracker is only for the MCDashboard proxy (the caching reverse proxy and tunnel endpoint). Contact support for everything else.
   - name: Security vulnerability
     url: https://github.com/MVdWSoftware/mcdashboard-proxy/security/policy
     about: Do not open a public issue. Follow SECURITY.md to report it privately.

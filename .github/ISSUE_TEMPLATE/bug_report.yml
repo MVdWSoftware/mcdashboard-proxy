@@ -1,12 +1,27 @@
-name: Bug report
-description: Something in the proxy does not work as documented
-labels: [bug]
+name: Bug report (proxy)
+description: Something in the MCDashboard proxy (the caching reverse proxy and tunnel endpoint) does not work as documented
+labels: [bug, proxy]
 body:
   - type: markdown
     attributes:
       value: |
-        Please search the existing issues first. **Do not post secrets**: remove TUNNEL_TOKEN,
-        EVENTS_TOKEN, MCD_JWT_SECRET, WEBHOOK_SECRET and the Redis password from logs and config.
+        ## Scope: MCDashboard proxy (the caching reverse proxy and tunnel endpoint)
+        This tracker is **only** for the MCDashboard proxy (the caching reverse proxy and tunnel endpoint).
+        For the MCDashboard app, the portal (accounts, licences, billing), the website, the WordPress plugin or the Minecraft plugin itself, use https://mcdashboard.org/en/support/ or write to
+        support+mcdashboard@mvdw-software.com. Such issues are closed here without a reply.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This is about the MCDashboard proxy (the caching reverse proxy and tunnel endpoint), not the app, the portal or another connected service.
+          required: true
+        - label: I searched the existing issues and the docs.
+          required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Do not post secrets**: remove the TUNNEL_TOKEN, EVENTS_TOKEN, MCD_JWT_SECRET, WEBHOOK_SECRET and the Redis password from logs and config.
         Security problems go to security@mvdw-software.com, not here (see SECURITY.md).
   - type: input
     id: version
