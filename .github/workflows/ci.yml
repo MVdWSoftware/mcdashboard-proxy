@@ -1,0 +1,42 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      # The contract test reads the plugin's openapi.yaml. Skipped (not failed) while the plugin
+      # repository is private and unreachable with the default token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        id: contract
+        continue-on-error: true
+        with:
+          repository: MVdWSoftware/mcdashboard-plugin
+          path: contract
+          persist-credentials: false
+      - name: Point the contract test at it
+        if: steps.contract.outcome == 'success'
+        run: echo "MCD_OPENAPI=${{ github.workspace }}/contract/openapi.yaml" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: '22' }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm test:coverage   # 100% thresholds are in vitest.config.ts
+      - run: pnpm audit --prod --audit-level high

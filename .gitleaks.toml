@@ -1,0 +1,13 @@
+# Copyright (c) 2026 MVdW-Software
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Reviewed false positives (history scan 2026-11-22): the Sec-WebSocket-Key handshake header and
+# "secret" constants in the tests. No production credential is in the history.
+title = "MCDashboard proxy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "test sources"
+paths = ['''^test/''']

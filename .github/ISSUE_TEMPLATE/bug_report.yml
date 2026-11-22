@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in the proxy does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search the existing issues first. **Do not post secrets**: remove TUNNEL_TOKEN,
+        EVENTS_TOKEN, MCD_JWT_SECRET, WEBHOOK_SECRET and the Redis password from logs and config.
+        Security problems go to security@mvdw-software.com, not here (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Proxy version or image tag
+    validations: { required: true }
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options: [Docker, Docker Compose, Node.js directly, Other]
+    validations: { required: true }
+  - type: dropdown
+    id: redis
+    attributes:
+      label: Redis
+      options: ["No (in-memory)", "Yes"]
+    validations: { required: true }
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and relevant config
+      description: Secrets removed, please.
+      render: text
