@@ -8,7 +8,7 @@ body:
         ## Scope: MCDashboard proxy (the caching reverse proxy and tunnel endpoint)
         This tracker is **only** for the MCDashboard proxy (the caching reverse proxy and tunnel endpoint).
         For the MCDashboard app, the portal (accounts, licences, billing), the website, the WordPress plugin or the Minecraft plugin itself, use https://mcdashboard.org/en/support/ or write to
-        support+mcdashboard@mvdw-software.com. Such issues are closed here without a reply.
+        support@mcdashboard.org. Such issues may be closed without a reply.
   - type: checkboxes
     id: scope
     attributes:

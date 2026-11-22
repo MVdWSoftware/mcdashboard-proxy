@@ -1,0 +1,35 @@
+name: Issue bot
+# Validates new issues against the issue form, labels the good ones `accepted` and forwards them (and
+# their comments) to the MVdW helpdesk. Needs, in Settings -> Secrets and variables -> Actions:
+#   variable HELPDESK_WEBHOOK_URL     the portal endpoint (.../api/support/hooks/github-issues)
+#   secret   HELPDESK_WEBHOOK_SECRET  the shared signing secret
+# Without them it only validates. It never checks out or runs code from an issue.
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+permissions:
+  issues: write
+  contents: read
+concurrency:
+  group: issue-bot-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          HELPDESK_WEBHOOK_URL: ${{ vars.HELPDESK_WEBHOOK_URL }}
+          HELPDESK_WEBHOOK_SECRET: ${{ secrets.HELPDESK_WEBHOOK_SECRET }}
+          ISSUE_BOT_BUG_FIELDS: 'Proxy version or image tag,Deployment,Redis'
+        with:
+          script: |
+            const run = require('./.github/scripts/issue-bot.cjs');
+            await run({ github, context, core });
