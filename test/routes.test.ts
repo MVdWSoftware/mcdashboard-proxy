@@ -16,6 +16,7 @@ describe("route allowlist", () => {
     for (const [method, url] of [
       ["GET", "/v1/info"], ["POST", "/v1/auth"], ["POST", "/v1/auth/refresh"], ["GET", "/v1/placeholders?q=tps&limit=10"],
       ["GET", "/v1/placeholders/max-players"], ["GET", "/v1/values?ids=a,b"], ["GET", "/v1/history/tps?since=100"],
+      ["GET", "/v1/history/tps?since=100&points=150"],
       ["GET", "/v1/dashboards"], ["POST", "/v1/dashboards"], ["GET", "/v1/dashboards/main"], ["GET", "/v1/dashboard"],
       ["DELETE", "/v1/devices/self"],
     ] as const) expect(m(method, url).kind, `${method} ${url}`).toBe("route");
@@ -52,6 +53,9 @@ describe("route allowlist", () => {
     expect(m("GET", "/v1/placeholders?q=" + "x".repeat(65))).toEqual({ kind: "badRequest", message: "q is too long" });
     expect(m("GET", "/v1/placeholders?limit=0").kind).toBe("badRequest");
     expect(m("GET", "/v1/history/tps?since=abc").kind).toBe("badRequest");
+    expect(m("GET", "/v1/history/tps?since=100&points=1").kind).toBe("badRequest");
+    expect(m("GET", "/v1/history/tps?since=100&points=2001").kind).toBe("badRequest");
+    expect(m("GET", "/v1/history/tps?since=100&points=x").kind).toBe("badRequest");
   });
 
   it("orders query keys and honours q weights", () => {

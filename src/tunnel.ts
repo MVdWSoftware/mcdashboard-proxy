@@ -16,10 +16,26 @@ import { WsConnection } from "./websocket.js";
 
 type Json = Record<string, unknown>;
 
+/**
+ * Version of the tunnel protocol between the plugin and this proxy. Additive changes keep it; bump it only for a change
+ * an older plugin cannot ignore. The plugin reports its own protocol in `hello`, so a newer plugin can tell that this
+ * proxy is older.
+ */
+export const TUNNEL_PROTOCOL = 1;
+
+/**
+ * API features this proxy carries end to end, matching the plugin's `/v1/info` features. The plugin intersects its own
+ * list with this one, so an older proxy (which reports nothing) never makes a new app use a route, query parameter or
+ * header it drops.
+ */
+export const TUNNEL_FEATURES = ["presets", "history-points", "upload", "client-verification", "player-names"] as const;
+
 export interface TunnelStatus {
   connected: boolean;
   server?: string;
   version?: string;
+  /** The plugin's tunnel protocol from `hello`; undefined for an older plugin. */
+  protocol?: number;
   /** Epoch ms the current connection became ready. */
   since?: number;
   /** Round trip of the last WebSocket ping. */
@@ -99,13 +115,17 @@ export class TunnelHub implements UpstreamPort, ChannelHost {
         if (msg.t !== "hello") return conn.close(1008);
         this.ready = true;
         clearTimeout(helloTimer);
-        this.status = { server: printable(msg.server, 64), version: printable(msg.version, 32), since: Date.now() };
+        const protocol = typeof msg.protocol === "number" && Number.isInteger(msg.protocol) && msg.protocol >= 0 ? msg.protocol : undefined;
+        this.status = { server: printable(msg.server, 64), version: printable(msg.version, 32), protocol, since: Date.now() };
         this.metrics.inc("mcdp_tunnel_connects_total");
         // Continuity is unknown on the very first connection: drop per-player entries, like the SSE stream does.
         const resume = this.lastEventId;
         if (!resume) void this.revocations.bumpGeneration();
-        conn.send(JSON.stringify({ t: "ready", since: resume ?? null }));
-        this.log(`tunnel: connected (${this.status.server ?? "?"} ${this.status.version ?? ""})`);
+        conn.send(JSON.stringify({ t: "ready", since: resume ?? null, protocol: TUNNEL_PROTOCOL, features: TUNNEL_FEATURES }));
+        this.log(`tunnel: connected (${this.status.server ?? "?"} ${this.status.version ?? ""}${protocol ? `, protocol ${protocol}` : ""})`);
+        if (protocol !== undefined && protocol > TUNNEL_PROTOCOL) {
+          this.log(`tunnel: the plugin speaks protocol ${protocol} but this proxy speaks ${TUNNEL_PROTOCOL}; features this proxy cannot carry stay hidden until it is updated`);
+        }
       },
       () => {
         clearTimeout(helloTimer);

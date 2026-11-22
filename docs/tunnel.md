@@ -50,6 +50,31 @@ two servers using the same key (a new connection replaces the old one), cannot c
 attempt is independent: a late close or error of an abandoned socket is ignored, so there is never more than one connection. An
 outage is logged once and then every 10th attempt; the recovery is logged with the number of attempts it took.
 
+## Protocol and capabilities
+
+The handshake is versioned, because the plugin and the proxy are updated independently:
+
+- `hello` (plugin → proxy) carries the plugin's tunnel `protocol` (`TunnelClient.PROTOCOL` in the plugin) and its name and
+  version.
+- `ready` (proxy → plugin) carries this proxy's tunnel `protocol` (`TUNNEL_PROTOCOL` in `src/tunnel.ts`) and `features`:
+  the API features this release carries end to end. The plugin publishes only the intersection with its own list in
+  `/v1/info`, so an older proxy never advertises a route, header or query parameter it would drop.
+
+`TUNNEL_FEATURES` currently lists `presets`, `history-points`, `upload`, `client-verification` and `player-names`. Each one
+needs something the proxy must do: the dashboard routes, the `points` parameter on `/v1/history/{id}`, the dashboard upload,
+the `X-MCDashboard-Attestation` header, and the `X-MCDashboard-Player` header. The proxy forwards those headers (and
+`X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement`) but only those; every other client header is dropped.
+
+A proxy that forwards to the plugin over plain HTTP (`UPSTREAM_URL`) instead of the tunnel sends the same list in
+`X-MCDashboard-Proxy-Features` with `X-MCDashboard-Via: proxy`, so the plugin applies the same rule in both modes. Both
+headers are set by the proxy; a client's own value is overwritten.
+
+The two directions are additive: an unknown frame type is ignored, so a newer plugin keeps working through an older proxy
+and a newer proxy accepts an older plugin. A plugin that reports a higher protocol only logs that the proxy is older; it
+does not disconnect. Bump `TUNNEL_PROTOCOL` only for a change an older plugin cannot ignore. The app-facing `protocol` and
+`features` of `/v1/info` are separate; see [`versioning.md`](https://github.com/MVdWSoftware/MCDashboard-plugin/blob/main/docs/versioning.md)
+in the plugin repository.
+
 What you can watch:
 
 - Proxy admin port: `GET /tunnelz` (200 while connected, 503 otherwise, JSON with server, version, uptime, ping round trip, in-flight

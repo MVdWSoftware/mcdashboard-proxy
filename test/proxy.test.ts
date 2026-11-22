@@ -231,10 +231,26 @@ describe("protection", () => {
 
   it("does not forward arbitrary client headers and overwrites X-Forwarded-For", async () => {
     const { plugin, port } = await setup();
-    await get(port, "/v1/info", { "x-forwarded-for": "6.6.6.6", cookie: "a=b", "x-evil": "1", "x-mcdashboard-player": "Steve" });
+    await get(port, "/v1/info", {
+      "x-forwarded-for": "6.6.6.6",
+      cookie: "a=b",
+      "x-evil": "1",
+      "x-mcdashboard-attestation": "a.b.c",
+      "x-mcdashboard-entitlement": "app",
+      "x-mcdashboard-player": "Steve",
+      "x-mcdashboard-proxy-features": "fake",
+      "x-mcdashboard-purpose": "background",
+      "x-mcdashboard-via": "client",
+    });
     const h = plugin.seen[0]!.headers;
     expect(h["x-forwarded-for"]).toBe("127.0.0.1");
+    expect(h["x-mcdashboard-attestation"]).toBe("a.b.c");
+    expect(h["x-mcdashboard-entitlement"]).toBe("app");
     expect(h["x-mcdashboard-player"]).toBe("Steve");
+    expect(h["x-mcdashboard-purpose"]).toBe("background");
+    // The proxy's own capability signal, never the client's.
+    expect(h["x-mcdashboard-via"]).toBe("proxy");
+    expect(h["x-mcdashboard-proxy-features"]).toContain("history-points");
     expect(h.cookie).toBeUndefined();
     expect(h["x-evil"]).toBeUndefined();
   });

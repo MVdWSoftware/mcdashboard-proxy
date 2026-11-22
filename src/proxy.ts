@@ -19,12 +19,13 @@ import type { Route } from "./routes.js";
 import { ANONYMOUS, Scopes } from "./scope.js";
 import type { Scope } from "./scope.js";
 import type { Store } from "./store.js";
-import { TunnelHub } from "./tunnel.js";
+import { TunnelHub, TUNNEL_FEATURES } from "./tunnel.js";
 import { tunnelUpgrade } from "./tunnel-upgrade.js";
 import { Upstream } from "./upstream.js";
 import type { UpstreamPort, UpstreamResponse } from "./upstream.js";
 
-const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "if-none-match", "user-agent", "x-mcdashboard-player"];
+const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "if-none-match", "user-agent",
+  "x-mcdashboard-attestation", "x-mcdashboard-entitlement", "x-mcdashboard-player", "x-mcdashboard-purpose"];
 
 export interface Proxy {
   server: Server;
@@ -210,7 +211,14 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
   }
 
   function forwardHeaders(req: IncomingMessage, ip: string): Record<string, string> {
-    const h: Record<string, string> = { "x-forwarded-for": ip, connection: "keep-alive" };
+    const h: Record<string, string> = {
+      "x-forwarded-for": ip,
+      connection: "keep-alive",
+      // Tells the plugin that a proxy routes this request and which API features it can carry. A client that copies
+      // these headers only hides features from itself; the proxy never lets a client's own value through.
+      "x-mcdashboard-via": "proxy",
+      "x-mcdashboard-proxy-features": TUNNEL_FEATURES.join(","),
+    };
     for (const name of FORWARDED_REQUEST_HEADERS) {
       const v = req.headers[name];
       if (typeof v === "string") h[name] = v.slice(0, 2048);

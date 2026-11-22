@@ -61,7 +61,7 @@ const DEFS: Def[] = [
   },
   { pattern: /^\/v1\/placeholders\/([^/]+)$/, methods: { GET: read("placeholder") }, param: (v) => PLACEHOLDER_ID.test(v) },
   { pattern: /^\/v1\/values$/, methods: { GET: read("values") }, query: { ids: ids(100) } },
-  { pattern: /^\/v1\/history\/([^/]+)$/, methods: { GET: read("history") }, param: (v) => PLACEHOLDER_ID.test(v), query: { since: num(0, 4_102_444_800, "since") } },
+  { pattern: /^\/v1\/history\/([^/]+)$/, methods: { GET: read("history") }, param: (v) => PLACEHOLDER_ID.test(v), query: { since: num(0, 4_102_444_800, "since"), points: num(2, 2000, "points") } },
   {
     pattern: /^\/v1\/dashboards$/,
     methods: { GET: read("dashboards"), POST: { name: "dashboardUpload", rate: "write", cacheable: false, hasBody: true } },

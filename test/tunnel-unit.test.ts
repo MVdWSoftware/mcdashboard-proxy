@@ -10,7 +10,7 @@ import { Revocations } from "../src/revocations.js";
 import { MemoryStore } from "../src/store.js";
 import { TunnelChannel } from "../src/tunnel-channel.js";
 import type { ChannelHost } from "../src/tunnel-channel.js";
-import { TunnelHub } from "../src/tunnel.js";
+import { TunnelHub, TUNNEL_FEATURES, TUNNEL_PROTOCOL } from "../src/tunnel.js";
 import { clientFrame, FakeSocket } from "./fakes.js";
 
 afterEach(() => vi.useRealTimers());
@@ -99,11 +99,26 @@ describe("tunnel hub", () => {
     expect(h.send({ t: "x" })).toBe(false);
     const s = ready(h);
     expect(h.connected).toBe(true);
-    expect(sentMsgs(s)[0]).toEqual({ t: "ready", since: null });
+    expect(sentMsgs(s)[0]).toEqual({ t: "ready", since: null, protocol: TUNNEL_PROTOCOL, features: [...TUNNEL_FEATURES] });
     expect(h.info()).toMatchObject({ connected: true, server: "srv" });
     expect(h.info().silentMs).toBeGreaterThanOrEqual(0);
     expect(metrics.render()).toContain("mcdp_tunnel_connects_total 1");
     expect(logs[0]).toContain("connected (srv 1)");
+  });
+
+  it("reports the plugin's tunnel protocol and warns when the plugin is newer", () => {
+    const { h, logs } = hub();
+    const s = ready(h, { t: "hello", server: "srv", version: "9.0.0", protocol: TUNNEL_PROTOCOL + 1 });
+    expect(h.info().protocol).toBe(TUNNEL_PROTOCOL + 1);
+    expect(sentMsgs(s)[0]).toMatchObject({ protocol: TUNNEL_PROTOCOL, features: [...TUNNEL_FEATURES] });
+    expect(logs[0]).toContain(`protocol ${TUNNEL_PROTOCOL + 1}`);
+    expect(logs[1]).toContain("this proxy speaks");
+  });
+
+  it("ignores a malformed plugin protocol", () => {
+    const { h } = hub();
+    ready(h, { t: "hello", server: "srv", version: "9.0.0", protocol: "2" });
+    expect(h.info().protocol).toBeUndefined();
   });
 
   it("works without a logger and with the default timing", () => {
@@ -214,13 +229,13 @@ describe("tunnel hub", () => {
     expect(await revocations.isDenied("dev1")).toBe(true);
     const s2 = connect(h); // replaces: resume from the last id
     say(s2, { t: "hello" });
-    expect(sentMsgs(s2)[0]).toEqual({ t: "ready", since: "e:1" });
+    expect(sentMsgs(s2)[0]).toEqual({ t: "ready", since: "e:1", protocol: TUNNEL_PROTOCOL, features: [...TUNNEL_FEATURES] });
     say(s2, { t: "reset" });
     say(s2, { t: "whatever" });
     expect(metrics.render()).toContain("mcdp_events_resets_total 1");
     const s3 = connect(h);
     say(s3, { t: "hello" });
-    expect(sentMsgs(s3)[0]).toEqual({ t: "ready", since: null });
+    expect(sentMsgs(s3)[0]).toEqual({ t: "ready", since: null, protocol: TUNNEL_PROTOCOL, features: [...TUNNEL_FEATURES] });
   });
 
   it("logs a replaced connection and ignores the close of the old one", () => {

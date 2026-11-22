@@ -5,6 +5,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Versioned tunnel handshake: `hello` carries the plugin's tunnel protocol, `ready` carries this proxy's protocol and the
+  API features it carries end to end (`TUNNEL_PROTOCOL`, `TUNNEL_FEATURES`), and `/tunnelz` shows the plugin's protocol.
+  The plugin publishes only the intersection in `/v1/info`, so an older proxy hides features it would drop. A proxy that
+  forwards over plain HTTP sends the same list in `X-MCDashboard-Proxy-Features`. See
+  [docs/tunnel.md](docs/tunnel.md#protocol-and-capabilities).
+
 ### Security
 - Negative caching no longer remembers `403` (the plugin's answer to a refused `User-Agent`, which one client could
   otherwise make every app see) or `401` in a scope shared by a player's devices.
@@ -17,6 +24,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The Docker image keeps the admin port on loopback (set `ADMIN_HOST=0.0.0.0` to scrape it from another container).
 
 ### Fixed
+- `/v1/history/{id}` accepts the contract's `points` parameter (2–2000) instead of answering `400`; the app reduces long
+  series with it.
+- The `X-MCDashboard-Attestation`, `X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement` headers reach the plugin (with
+  the player header), so client verification, background limits and player names work through the proxy.
 - Dead defensive branches removed (unreachable `??` fallbacks, an impossible length check in the WebSocket reader, a stale-connection guard in the tunnel) so the coverage numbers are real.
 - `mcdp_rejected_total` counts each refusal once, under its reason.
 - Unparsable request targets are `400` instead of `500`; refused bodies close the connection.
