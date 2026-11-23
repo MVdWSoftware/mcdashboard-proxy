@@ -1,9 +1,9 @@
 # Copyright (c) 2026 MVdW-Software
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# The public container image. Every push to main publishes `edge`, `latest`, `main` and `sha-<commit>`; a `vX.Y.Z` tag
+# The container image. Every push to main publishes `edge`, `latest`, `main` and `sha-<commit>`; a `vX.Y.Z` tag
 # publishes `X.Y.Z`, `X.Y` and `latest`. Pull requests build the image without pushing so a broken Dockerfile is caught
-# before it is merged. The package is public: anyone can pull it without an account.
+# before it is merged. The package starts private; making it public is a manual, irreversible step in its settings.
 name: Image
 on:
   push:

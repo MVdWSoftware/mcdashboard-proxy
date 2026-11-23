@@ -3,10 +3,10 @@
 
 # Settings: docs/configuration.md. Put TLS in front of port 8080 (docs/deployment.md).
 # Every variable below can be set in .env (see .env.example); the value after :- is the default.
-# Pulls the published image; build it yourself with docker-compose.build.yml (docs/deployment.md#container-image).
+# Builds from this checkout. A published image is available too, but private for now (docs/deployment.md#container-image).
 services:
   proxy:
-    image: ${MCDP_IMAGE:-ghcr.io/mvdwsoftware/mcdashboard-proxy:latest}
+    build: .
     restart: unless-stopped
     # Only the public API; the admin port 9090 must never be published.
     ports: ["${LISTEN_PORT:-8080}:${LISTEN_PORT:-8080}"]

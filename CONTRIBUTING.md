@@ -38,8 +38,8 @@ public listener must answer `OPTIONS` with the CORS headers the app needs, the p
 built-in `HEALTHCHECK` must turn healthy. A broken `Dockerfile` therefore never merges.
 
 ```sh
-docker build -t mcdashboard-proxy .                                # what CI builds
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build   # with Redis, from this checkout
+docker build -t mcdashboard-proxy .          # what CI and `docker compose up` build
+docker compose up -d                         # with Redis, from this checkout
 ```
 
 The `Image` workflow publishes on its own, after the same smoke test:
@@ -49,8 +49,10 @@ The `Image` workflow publishes on its own, after the same smoke test:
   tag and push the tag).
 
 It pushes to `ghcr.io/mvdwsoftware/mcdashboard-proxy` with the workflow's `GITHUB_TOKEN`; no secret has to be
-configured. Provenance and an SBOM are attached. When releasing, check the run and that the package's visibility is
-still *Public* (Package settings → Danger Zone).
+configured. Provenance and an SBOM are attached. The package is private until a package owner sets its visibility to
+*Public* (Package settings → Danger Zone), which is irreversible and cannot be done through the API; do that once the
+image is meant for anonymous users. An organisation can instead set *Settings → Packages → default package
+visibility* to Public so new packages start public.
 
 ## Pull requests
 

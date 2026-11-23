@@ -1,9 +1,0 @@
-# Copyright (c) 2026 MVdW-Software
-# SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# Build the proxy from this checkout instead of pulling the published image:
-#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-# Everything else (settings, Redis, ports) comes from docker-compose.yml.
-services:
-  proxy:
-    build: .

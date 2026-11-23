@@ -14,16 +14,24 @@ rather than the game server.
 
 ## Container image
 
-The proxy is published as a public image on the GitHub Container Registry. Pulling it needs no account, token or
-build:
+GitHub Actions builds and publishes the proxy from this repository on every push to `main` and on every `vX.Y.Z` tag
+([`.github/workflows/image.yml`](../.github/workflows/image.yml)). Every build is started and checked (`/healthz`, CORS
+preflight, non-root user, Docker health check) before it is pushed. The image is
+`ghcr.io/mvdwsoftware/mcdashboard-proxy`.
+
+**The package is private for now**, so pulling it needs a GitHub token with `read:packages` (a classic personal access
+token, used as the password; with the `gh` CLI, `gh auth refresh -h github.com -s read:packages` first and then
+`gh auth token`):
 
 ```sh
+docker login ghcr.io -u <github-user>      # paste a token with read:packages
 docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
 ```
 
-It is built from this repository by GitHub Actions ([`.github/workflows/image.yml`](../.github/workflows/image.yml))
-on every push to `main` and on every `vX.Y.Z` tag, and each build is started and checked (`/healthz`, CORS preflight,
-non-root user, Docker health check) before it is published.
+Making it public is a single irreversible switch that only the package owners can make: Package settings → Danger
+Zone → Change visibility → Public. Until then, `docker compose up -d` builds from the checkout, which needs no
+account. On an organisation, *Settings → Packages → default package visibility* can make future packages public
+without this step.
 
 | Tag | Published | Use |
 | --- | --- | --- |
@@ -42,6 +50,7 @@ works either way.
 Run it with an environment file (every setting is a variable, see [configuration.md](configuration.md)):
 
 ```sh
+docker login ghcr.io -u <github-user>      # while the package is private: a token with read:packages
 cp .env.example proxy.env     # fill in REDIS_PASSWORD and TRUSTED_PROXIES; or leave REDIS_URL unset to use memory
 docker run -d --name mcdashboard-proxy --restart unless-stopped \
   --env-file proxy.env --publish 8080:8080 \
@@ -59,9 +68,7 @@ docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest    # or a release tag 
 docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
 ```
 
-Use `ghcr.io/mvdwsoftware/mcdashboard-proxy@sha256:…` in `MCDP_IMAGE` (the compose file reads that variable) or in
-`docker run`. Upgrading is `docker compose pull && docker compose up -d`, or pulling and recreating the container;
-the proxy is stateless.
+Upgrading is pulling the new tag and recreating the container; the proxy is stateless.
 
 Inspect what was published, including the manifest list for both architectures and the build provenance and SBOM
 attestations:
@@ -70,11 +77,9 @@ attestations:
 docker buildx imagetools inspect ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
 ```
 
-Build the image from a checkout instead (that is what a pull request does):
+Build the image from a checkout instead (that is what `docker compose up -d` and every pull request do):
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-# or
 docker build -t mcdashboard-proxy .
 ```
 
@@ -83,9 +88,9 @@ over a network, the licence requires you to offer the modified source.
 
 ## Docker Compose
 
-`docker-compose.yml` pulls the published image and starts it next to a password-protected Redis (no published port,
-128 MB, no persistence). Set `MCDP_IMAGE` in `.env` to pin a version or digest; add `-f docker-compose.build.yml` to
-build the image from the checkout instead.
+`docker-compose.yml` builds the proxy from this checkout and starts it next to a password-protected Redis (no published
+port, 128 MB, no persistence). To run the published image instead, pull and tag it as above and start it with
+`docker run`, or point the compose service's `image:` at it and remove `build: .`.
 The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry, which
 is a cold cache entry, not a hot rate-limit counter. `volatile-ttl` would drop the entry closest to expiry, and that is
 the 60-second counter rather than a cache entry (cache entries live `max-age` + `STALE_IF_ERROR_S`); resetting the
@@ -176,5 +181,5 @@ plugin answers; a Redis outage does not make it fail, because the proxy keeps se
 ## Upgrading
 
 Releases follow semver and are listed in the [changelog](../CHANGELOG.md). The proxy is stateless;
-restart it any time, the cache lives in Redis. With compose: `docker compose pull && docker compose up -d`. Without
-it: `docker pull` the new tag and recreate the container, or change `MCDP_IMAGE` to the new version or digest first.
+restart it any time, the cache lives in Redis. With the image: pull the new tag and recreate the container. With the
+compose file: `git pull && docker compose up -d --build`.
