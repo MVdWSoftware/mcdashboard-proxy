@@ -17,7 +17,15 @@ export class HttpError extends Error {
   }
 }
 
-const SECURITY_HEADERS = { "x-content-type-options": "nosniff", "cache-control": "no-store" };
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "cache-control": "no-store",
+  // The API is called from browsers too. These match what the plugin sends itself; authorization travels in a header,
+  // never a cookie, so a wildcard origin grants nothing a direct call to the plugin would not.
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "Authorization, Content-Type, X-MCDashboard-Attestation, X-MCDashboard-Purpose, X-MCDashboard-Entitlement, X-MCDashboard-Player",
+  "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+};
 
 /** Statuses after which the connection is closed: a flooding client, or a request body that was not read. */
 const CLOSE_AFTER = new Set([411, 413, 415, 429]);
@@ -37,7 +45,8 @@ export function sendJson(res: ServerResponse, status: number, json: unknown, ext
 
 export function sendRaw(res: ServerResponse, status: number, headers: Record<string, string>, body: Buffer, method: string, cacheStatus: string): void {
   if (res.headersSent) return;
-  const out: Record<string, string | number> = { "x-content-type-options": "nosniff", ...headers, "cache-status": `mcdashboard-proxy; ${cacheStatus}` };
+  // `headers` are the plugin's pass-through headers: when it names a Cache-Control that one wins, otherwise `no-store`.
+  const out: Record<string, string | number> = { ...SECURITY_HEADERS, ...headers, "cache-status": `mcdashboard-proxy; ${cacheStatus}` };
   if (status !== 304) out["content-length"] = body.length;
   res.writeHead(status, out);
   res.end(method === "HEAD" || status === 304 ? undefined : body);

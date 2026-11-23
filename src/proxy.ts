@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { freshness, ResponseCache } from "./cache.js";
+import { FillBudget } from "./budget.js";
+import { canonicalPlayer, freshness, MAX_PLAYER_HEADER, ResponseCache } from "./cache.js";
 import type { Cached } from "./cache.js";
 import { bucket, ClientIp } from "./clientip.js";
 import type { Config } from "./config.js";
@@ -16,7 +18,7 @@ import { HttpError, readBody, sendJson, sendRaw } from "./respond.js";
 import { Revocations } from "./revocations.js";
 import { canonicalLanguages, canonicalQuery, match } from "./routes.js";
 import type { Route } from "./routes.js";
-import { ANONYMOUS, Scopes } from "./scope.js";
+import { ANONYMOUS, Scopes, withPlayer } from "./scope.js";
 import type { Scope } from "./scope.js";
 import type { Store } from "./store.js";
 import { TunnelHub, TUNNEL_FEATURES } from "./tunnel.js";
@@ -26,6 +28,20 @@ import type { UpstreamPort, UpstreamResponse } from "./upstream.js";
 
 const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "if-none-match", "user-agent",
   "x-mcdashboard-attestation", "x-mcdashboard-entitlement", "x-mcdashboard-player", "x-mcdashboard-purpose"];
+
+/**
+ * Headers that shape an answer beyond the cache key: the plugin refuses or treats a client differently by User-Agent,
+ * verifies an attestation, and may hide features by entitlement or handle a purpose differently. Two requests that
+ * differ in one of them must never share an in-flight answer, so they are part of the coalescing key.
+ */
+const COALESCE_HEADERS = ["user-agent", "x-mcdashboard-attestation", "x-mcdashboard-purpose", "x-mcdashboard-entitlement"];
+
+/** Node's own header limit is 8 KiB; 4096 matches the attestation the plugin accepts, and hosts are at most 255. */
+const MAX_FORWARDED_HEADER = 4096;
+const HOST = /^[A-Za-z0-9._~:[\]-]{1,255}$/;
+
+/** How long one client's cache-fill budget lasts; entries are per node, like the concurrency gates. */
+const FILL_WINDOW_MS = 5 * 60_000;
 
 export interface Proxy {
   server: Server;
@@ -55,6 +71,7 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     : null;
   const upstream: UpstreamPort = tunnel ?? new Upstream(config.upstream, config.maxUpstreamConcurrency, config.upstreamTimeoutMs);
   const inflight = new Map<string, Promise<UpstreamResponse | Cached>>();
+  const fills = new FillBudget(config.maxCacheKeysPerClient, FILL_WINDOW_MS);
 
   const server = createServer({ maxHeaderSize: 8192, requestTimeout: 15_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, (req, res) => {
     const ip = clients.of(req);
@@ -97,6 +114,12 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     } catch {
       throw new HttpError(400, "bad request target");
     }
+    // CORS preflight, answered as the plugin does: no route, no upstream request, the same headers on every path.
+    if (method === "OPTIONS") {
+      const rl = await limiter.hit("read", key, config.limits.read);
+      if (!rl.allowed) throw new HttpError(429, "too many requests", { "retry-after": String(rl.retryAfterS) }, "rate_limit");
+      return sendRaw(res, 204, {}, Buffer.alloc(0), method, "bypass");
+    }
     const m = match(method, url.pathname, url.searchParams);
     if (m.kind === "notFound") throw new HttpError(404, "not found");
     if (m.kind === "methodNotAllowed") throw new HttpError(405, "method not allowed", { allow: [...m.allow, ...(m.allow.includes("GET") ? ["HEAD"] : [])].join(", ") });
@@ -106,8 +129,12 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     const rl = await limiter.hit(route.rate, key, config.limits[route.rate]);
     if (!rl.allowed) throw new HttpError(429, "too many requests", { "retry-after": String(rl.retryAfterS) }, "rate_limit");
 
+    const playerHeader = req.headers["x-mcdashboard-player"];
+    const player = canonicalPlayer(typeof playerHeader === "string" ? playerHeader : undefined);
+    if (player.length > MAX_PLAYER_HEADER) throw new HttpError(400, "X-MCDashboard-Player is too long");
+
     const authz = req.headers.authorization;
-    const scope = authz !== undefined && route.rate !== "auth" ? await scopes.of(authz, key) : ANONYMOUS;
+    const scope = withPlayer(authz !== undefined && route.rate !== "auth" ? await scopes.of(authz, key) : ANONYMOUS, player);
 
     const query = canonicalQuery(url.searchParams);
     const target = url.pathname + (query ? "?" + query : "");
@@ -122,12 +149,12 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
       const r = await callPlugin(method, target, forward);
       return reply(res, method, r, "bypass", req.headers["if-none-match"]);
     }
-    await serveCached(req, res, method, url.pathname, query, target, forward, route, scope);
+    await serveCached(req, res, method, url.pathname, query, target, forward, route, scope, player, key);
   }
 
-  async function serveCached(req: IncomingMessage, res: ServerResponse, method: string, path: string, query: string, target: string, forward: Record<string, string>, route: Route, scope: Scope): Promise<void> {
+  async function serveCached(req: IncomingMessage, res: ServerResponse, method: string, path: string, query: string, target: string, forward: Record<string, string>, route: Route, scope: Scope, player: string, client: string): Promise<void> {
     const languages = canonicalLanguages(req.headers["accept-language"], config.languages);
-    const ck = ResponseCache.key(path, query, languages, scope.key && `${scope.key}#${await revocations.generation()}`);
+    const ck = ResponseCache.key(path, query, languages, scope.key && `${scope.key}#${await revocations.generation()}`, player);
     const entry = await cache.get(ck);
     const inm = req.headers["if-none-match"];
     if (entry && ResponseCache.fresh(entry)) {
@@ -140,10 +167,11 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     const { "accept-language": _al, "if-none-match": _inm, ...headers } = forward;
     if (languages) headers["accept-language"] = languages;
     if (entry?.headers.etag) headers["if-none-match"] = entry.headers.etag;
-    let pending = inflight.get(ck);
+    const pendingKey = coalesceKey(ck, forward);
+    let pending = inflight.get(pendingKey);
     if (!pending) {
-      pending = refresh(ck, target, headers, entry, scope).finally(() => inflight.delete(ck));
-      inflight.set(ck, pending);
+      pending = refresh(ck, target, headers, entry, scope, client).finally(() => inflight.delete(pendingKey));
+      inflight.set(pendingKey, pending);
     } else {
       metrics.inc("mcdp_coalesced_total");
     }
@@ -160,7 +188,17 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     }
   }
 
-  async function refresh(ck: string, target: string, headers: Record<string, string>, entry: Cached | null, scope: Scope): Promise<UpstreamResponse | Cached> {
+  /**
+   * Two requests may share one upstream call only when they would get the same answer: the cache key already covers
+   * path, query, language, scope and player, and the digest below adds the headers that change what the plugin
+   * answers for one caller (User-Agent policy, attestation, entitlement, purpose).
+   */
+  function coalesceKey(ck: string, forward: Record<string, string>): string {
+    const vary = COALESCE_HEADERS.map((n) => `${n}=${forward[n] ?? ""}`).join("\n");
+    return `${ck}#${createHash("sha256").update(vary).digest("base64url").slice(0, 22)}`;
+  }
+
+  async function refresh(ck: string, target: string, headers: Record<string, string>, entry: Cached | null, scope: Scope, client: string): Promise<UpstreamResponse | Cached> {
     const r = await callPlugin("GET", target, headers);
     if (r.status === 304 && entry) {
       const renewed = { ...entry, storedAt: Date.now() };
@@ -169,7 +207,9 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     }
     if (r.status >= 500 && entry && cache.usableStale(entry)) throw new HttpError(r.status, "upstream error");
     const maxAge = freshness(r.status, r.headers, scope.kind, config.negativeTtlS);
-    if (maxAge !== null) await cache.put(ck, { status: r.status, headers: r.headers, body: r.body, storedAt: Date.now(), maxAge }).catch(() => {});
+    // A renewal of an entry that exists costs no new shared memory; a new key must fit in this client's budget.
+    const mayStore = entry !== null || fills.allow(client, ck);
+    if (maxAge !== null && mayStore) await cache.put(ck, { status: r.status, headers: r.headers, body: r.body, storedAt: Date.now(), maxAge }).catch(() => {});
     return r;
   }
 
@@ -191,11 +231,19 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
   function reply(res: ServerResponse, method: string, r: UpstreamResponse, status: string, inm?: string): void {
     const etag = r.headers.etag;
     if (r.status === 200 && etag && inm === etag) return sendRaw(res, 304, r.headers, Buffer.alloc(0), method, status);
+    // A 5xx body is the plugin's internals (stack traces, host names): never forwarded. Errors are never cacheable,
+    // even when the plugin forgot to say so.
+    if (r.status >= 500) {
+      const { etag: _etag, ...rest } = r.headers;
+      const headers = { ...rest, "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+      return sendRaw(res, r.status, headers, Buffer.from('{"error":"upstream error"}'), method, status);
+    }
+    if (r.status >= 400) return sendRaw(res, r.status, { ...r.headers, "cache-control": "no-store" }, r.body, method, status);
     sendRaw(res, r.status, r.headers, r.body, method, status);
   }
 
   function replyCached(res: ServerResponse, method: string, e: Cached, status: string, inm?: string): void {
-    const headers = { ...e.headers, age: String(ResponseCache.age(e)) };
+    const headers = { ...e.headers, age: String(ResponseCache.age(e)), ...(e.status >= 400 ? { "cache-control": "no-store" } : {}) };
     if (e.status === 200 && e.headers.etag && inm === e.headers.etag) return sendRaw(res, 304, headers, Buffer.alloc(0), method, status);
     sendRaw(res, e.status, headers, e.body, method, status);
   }
@@ -204,7 +252,9 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     try {
       if (tunnel && !tunnel.connected) return false;
       const r = await upstream.request("GET", "/v1/info", { accept: "application/json" });
-      return r.status < 500 && (await store.ping());
+      // Redis is deliberately not required: the fallback store keeps cache and limits in memory, and taking every node
+      // out of the load balancer on a Redis hiccup is worse than serving from memory. `mcdp_redis_up` tracks it.
+      return r.status < 500;
     } catch {
       return false;
     }
@@ -221,7 +271,14 @@ export function createProxy(config: Config, store: Store, revocations: Revocatio
     };
     for (const name of FORWARDED_REQUEST_HEADERS) {
       const v = req.headers[name];
-      if (typeof v === "string") h[name] = v.slice(0, 2048);
+      if (typeof v === "string") h[name] = v.slice(0, MAX_FORWARDED_HEADER);
+    }
+    // The plugin verifies client attestations against the Host the client used (its `security.client-verification.hosts`)
+    // and would otherwise see the proxy's own address. Host is also what a terminator / CDN routes on.
+    const host = req.headers.host;
+    if (host && HOST.test(host)) {
+      h.host = host;
+      h["x-forwarded-host"] = host;
     }
     return h;
   }

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { freshness, pick, ResponseCache } from "../src/cache.js";
+import { canonicalPlayer, freshness, pick, ResponseCache } from "../src/cache.js";
 import { MemoryStore } from "../src/store.js";
 
 describe("cache rules", () => {
@@ -15,9 +15,13 @@ describe("cache rules", () => {
     expect(freshness(200, pub, "anonymous", 5)).toBe(60);
     expect(freshness(200, priv, "anonymous", 5)).toBeNull();
     expect(freshness(200, priv, "player", 5)).toBe(10);
-    expect(freshness(200, pub, "unverified", 5)).toBeNull();
-    expect(freshness(200, priv, "unverified", 5)).toBe(10);
+    expect(freshness(200, priv, "token", 5)).toBe(10);
     expect(freshness(200, { "cache-control": "no-store" }, "player", 5)).toBeNull();
+  });
+
+  it("never stores answers for a token it cannot verify, so random tokens cannot fill the cache", () => {
+    expect(freshness(200, pub, "unverified", 5)).toBeNull();
+    expect(freshness(200, priv, "unverified", 5)).toBeNull();
   });
 
   it("remembers errors only where they cannot leak to another client", () => {
@@ -32,6 +36,8 @@ describe("cache rules", () => {
 
   it("honours Vary only for headers the key covers", () => {
     expect(freshness(200, { ...pub, vary: "Authorization, Accept-Language" }, "anonymous", 5)).toBe(60);
+    // allow-player-names servers: the typed player is part of the key, so their answers may be stored.
+    expect(freshness(200, { ...pub, vary: "Authorization, X-MCDashboard-Player" }, "anonymous", 5)).toBe(60);
     expect(freshness(200, { ...pub, vary: "User-Agent" }, "anonymous", 5)).toBeNull();
     expect(freshness(200, { ...pub, vary: "*" }, "anonymous", 5)).toBeNull();
   });
@@ -39,16 +45,23 @@ describe("cache rules", () => {
   it("keeps only listed response headers with values a client may receive", () => {
     expect(pick({ "content-type": "text/plain", server: "x", etag: '"a"\r\nset-cookie: x=1' })).toEqual({ "content-type": "text/plain" });
   });
+
+  it("canonicalises the typed player name", () => {
+    expect(canonicalPlayer(undefined)).toBe("");
+    expect(canonicalPlayer("  Steve ")).toBe("steve");
+  });
 });
 
 describe("response cache", () => {
   const entry = (over = {}) => ({ status: 200, headers: { etag: '"a"' }, body: Buffer.from("hello"), storedAt: Date.now(), maxAge: 10, ...over });
 
-  it("keys differ per path, query, language and scope", () => {
+  it("keys differ per path, query, language, scope and typed player", () => {
     const k = ResponseCache.key("/v1/info", "", "en");
     expect(k).toMatch(/^c:/);
     expect(ResponseCache.key("/v1/info", "", "en", "p:x")).not.toBe(k);
     expect(ResponseCache.key("/v1/info", "a=1", "en")).not.toBe(k);
+    expect(ResponseCache.key("/v1/info", "", "en", "n:steve", "steve")).not.toBe(k);
+    expect(ResponseCache.key("/v1/info", "", "en", "n:steve", "steve")).not.toBe(ResponseCache.key("/v1/info", "", "en", "n:alex", "alex"));
   });
 
   it("stores, reads back and skips oversized bodies", async () => {

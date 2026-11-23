@@ -18,6 +18,26 @@ describe("config", () => {
     expect(c.webhookSecret).toBeNull();
     expect(c.languages).toContain("nl");
     expect(c.upstream.href).toBe("http://127.0.0.1:1553/");
+    expect(c.maxCacheKeysPerClient).toBe(256);
+    expect(c.keyPrefix).toMatch(/^mcdp:[0-9a-f]{8}:$/);
+  });
+
+  it("derives a per-backend Redis namespace, so two servers cannot cross-serve", () => {
+    const a = loadConfig({ UPSTREAM_URL: "http://10.0.0.1:1553" }).keyPrefix;
+    const b = loadConfig({ UPSTREAM_URL: "http://10.0.0.2:1553" }).keyPrefix;
+    expect(a).not.toBe(b);
+    expect(loadConfig({ UPSTREAM_URL: "http://10.0.0.1:1553" }).keyPrefix).toBe(a);
+    // The tunnel has no upstream URL: the key identifies the backend instead.
+    const t = "t".repeat(32);
+    expect(loadConfig({ TUNNEL_TOKEN: t }).keyPrefix).not.toBe(loadConfig({ TUNNEL_TOKEN: t + "x" }).keyPrefix);
+    // An explicit prefix is used as is, so several proxies for one server can share it.
+    expect(loadConfig({ REDIS_KEY_PREFIX: "shop:" }).keyPrefix).toBe("shop:");
+  });
+
+  it("adds a separate Redis password percent-encoded", () => {
+    const c = loadConfig({ REDIS_URL: "redis://redis:6379", REDIS_PASSWORD: "p@ss:/#wörd" });
+    expect(c.redisUrl).toBe("redis://:p%40ss%3A%2F%23w%C3%B6rd@redis:6379");
+    expect(loadConfig({ REDIS_URL: "redis://:pw@redis:6379" }).redisUrl).toBe("redis://:pw@redis:6379");
   });
 
   it("reads every override", () => {
@@ -57,6 +77,9 @@ describe("config", () => {
     [{ TUNNEL_TOKEN: "short" }, /at least 32/],
     [{ TUNNEL_PATH: "tunnel" }, /plain path/],
     [{ TUNNEL_PATH: "/v1/x" }, /plain path/],
+    [{ REDIS_PASSWORD: "pw" }, /needs REDIS_URL/],
+    [{ REDIS_URL: "redis://:pw@redis:6379", REDIS_PASSWORD: "pw" }, /not both/],
+    [{ MAX_CACHE_KEYS_PER_CLIENT: "0" }, /MAX_CACHE_KEYS_PER_CLIENT/],
   ])("rejects %j", (env, msg) => {
     expect(() => loadConfig(env)).toThrow(msg);
   });

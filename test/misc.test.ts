@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { Gate, RateLimiter } from "../src/ratelimit.js";
 import { Metrics } from "../src/metrics.js";
 import { MemoryStore } from "../src/store.js";
+import type { Store } from "../src/store.js";
 
 describe("rate limiter", () => {
   it("allows up to the limit then reports when the window resets", async () => {
@@ -17,6 +18,22 @@ describe("rate limiter", () => {
     expect(third.allowed).toBe(false);
     expect(third.retryAfterS).toBeGreaterThanOrEqual(1);
     expect((await rl.hit("read", "2.2.2.2", 2)).allowed).toBe(true);
+  });
+
+  it("keeps a counter for two windows, so an evicting Redis drops cache entries first", async () => {
+    const ttls: number[] = [];
+    const store: Store = {
+      get: async () => null,
+      set: async () => {},
+      hit: async (_key: string, ttlMs: number) => {
+        ttls.push(ttlMs);
+        return 1;
+      },
+      ping: async () => true,
+      close: async () => {},
+    };
+    await new RateLimiter(store, 60).hit("read", "x", 1);
+    expect(ttls).toEqual([120_000]);
   });
 });
 

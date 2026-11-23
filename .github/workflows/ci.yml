@@ -21,17 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { persist-credentials: false }
-      # The contract test reads the plugin's openapi.yaml. Skipped (not failed) while the plugin
-      # repository is private and unreachable with the default token.
+      # The contract test reads the plugin's openapi.yaml: a new or renamed endpoint must not silently be unreachable
+      # here. The plugin repository is public, so this checkout is required like the one in GitLab CI.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        id: contract
-        continue-on-error: true
         with:
           repository: MVdWSoftware/mcdashboard-plugin
           path: contract
           persist-credentials: false
       - name: Point the contract test at it
-        if: steps.contract.outcome == 'success'
         run: echo "MCD_OPENAPI=${{ github.workspace }}/contract/openapi.yaml" >> "$GITHUB_ENV"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: '22' }

@@ -7,9 +7,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { match } from "../src/routes.js";
 
-// openapi.yaml of the MCDashboard-plugin repository: MCD_OPENAPI (CI), else a sibling checkout. Skipped only when
-// neither is there; a wrong MCD_OPENAPI fails instead of silently skipping.
-const file = process.env.MCD_OPENAPI ?? "../MCDashboard-plugin/openapi.yaml";
+// openapi.yaml of the MCDashboard-plugin repository: MCD_OPENAPI (CI), else the sibling checkout (lower-case directory,
+// as the repository is named). Skipped only when neither is there; a wrong MCD_OPENAPI fails instead of silently skipping.
+const file = process.env.MCD_OPENAPI ?? "../mcdashboard-plugin/openapi.yaml";
 
 describe.skipIf(!process.env.MCD_OPENAPI && !existsSync(file))("OpenAPI contract", () => {
   const operations = () => {

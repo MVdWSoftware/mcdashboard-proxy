@@ -7,6 +7,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Only the proxy's tests: `.github/scripts/*.test.cjs` runs under `node --test` in its own workflow.
+    include: ["test/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["src/**"],

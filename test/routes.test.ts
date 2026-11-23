@@ -38,6 +38,22 @@ describe("route allowlist", () => {
     expect(m("GET", "/v1/info?x=1").kind).toBe("badRequest");
   });
 
+  it("does not cache requests whose validated parameters are unbounded in combination", () => {
+    const cacheable = (url: string) => {
+      const r = m("GET", url);
+      return r.kind === "route" && r.route.cacheable;
+    };
+    expect(cacheable("/v1/placeholders")).toBe(true);
+    expect(cacheable("/v1/placeholders?ids=a,b")).toBe(true);
+    expect(cacheable("/v1/placeholders?limit=10&offset=20")).toBe(true);
+    expect(cacheable("/v1/placeholders?q=tps")).toBe(false);
+    expect(cacheable("/v1/placeholders?group=player")).toBe(false);
+    expect(cacheable("/v1/history/tps")).toBe(true);
+    expect(cacheable("/v1/history/tps?since=100")).toBe(false);
+    expect(cacheable("/v1/history/tps?points=150")).toBe(false);
+    expect(cacheable("/v1/values?ids=a,b")).toBe(true);
+  });
+
   it("canonicalises the query and language", () => {
     expect(canonicalQuery(new URLSearchParams("ids=b,a&x=1"))).toBe(canonicalQuery(new URLSearchParams("x=1&ids=a,b")));
     expect(canonicalLanguages("nl-BE,nl;q=0.9,en;q=0.8,xx;q=0.7", ["en", "nl"])).toBe("nl,en");

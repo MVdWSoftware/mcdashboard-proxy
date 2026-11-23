@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import { createHash } from "node:crypto";
+
 export interface Config {
   listenHost: string;
   listenPort: number;
@@ -27,6 +29,8 @@ export interface Config {
   negativeTtlS: number;
   staleIfErrorS: number;
   cacheMaxBodyBytes: number;
+  /** How many new cache keys one client may create per five minutes (cache-fill protection). */
+  maxCacheKeysPerClient: number;
   /** When set the plugin dials in, and `upstream`, `liveUpstream` and `eventsToken` are not used. */
   tunnelToken: string | null;
   tunnelPath: string;
@@ -62,6 +66,34 @@ function url(env: Env, name: string, def: string): URL {
   return u;
 }
 
+/**
+ * The Redis URL, with `REDIS_PASSWORD` added percent-encoded when it is given separately, so a password with `@`, `/`,
+ * `:` or `#` needs no escaping in `.env` or the compose file. Either form may be used, never both.
+ */
+function redisUrl(env: Env): string | null {
+  const raw = env.REDIS_URL?.trim();
+  const password = env.REDIS_PASSWORD;
+  if (!raw) {
+    if (password) throw new Error("REDIS_PASSWORD needs REDIS_URL to name the server");
+    return null;
+  }
+  if (!password) return raw;
+  const u = new URL(raw);
+  if (u.password) throw new Error("set the Redis password in REDIS_URL or in REDIS_PASSWORD, not both");
+  u.password = password;
+  return u.toString();
+}
+
+/**
+ * The Redis namespace. Without an explicit `REDIS_KEY_PREFIX` it is derived from the backend this proxy serves, because
+ * one Redis shared by two proxies for two servers would otherwise serve one server's answers for the other.
+ */
+export function keyPrefix(env: Env, upstream: URL, tunnelToken: string | null): string {
+  if (env.REDIS_KEY_PREFIX) return env.REDIS_KEY_PREFIX;
+  const identity = tunnelToken ?? upstream.origin;
+  return `mcdp:${createHash("sha256").update(identity).digest("hex").slice(0, 8)}:`;
+}
+
 /** Reads the configuration from environment variables (documented in docs/configuration.md). */
 export function loadConfig(env: Env = process.env): Config {
   const secret = env.MCD_JWT_SECRET?.trim();
@@ -77,15 +109,16 @@ export function loadConfig(env: Env = process.env): Config {
   if (tunnelToken && tunnelToken.length < 32) throw new Error("TUNNEL_TOKEN must be at least 32 characters (use a random key)");
   const tunnelPath = env.TUNNEL_PATH || "/tunnel";
   if (!/^\/[A-Za-z0-9._~/-]{1,64}$/.test(tunnelPath) || tunnelPath.startsWith("/v1")) throw new Error("TUNNEL_PATH must be a plain path outside /v1");
+  const upstream = url(env, "UPSTREAM_URL", "http://127.0.0.1:1553");
   return {
     listenHost: env.LISTEN_HOST || "0.0.0.0",
     listenPort: int(env, "LISTEN_PORT", 8080, 1),
     adminHost: env.ADMIN_HOST || "127.0.0.1",
     adminPort: int(env, "ADMIN_PORT", 9090, 0),
-    upstream: url(env, "UPSTREAM_URL", "http://127.0.0.1:1553"),
+    upstream,
     liveUpstream: url(env, "UPSTREAM_LIVE_URL", "http://127.0.0.1:1554"),
-    redisUrl: env.REDIS_URL || null,
-    keyPrefix: env.REDIS_KEY_PREFIX || "mcdp:",
+    redisUrl: redisUrl(env),
+    keyPrefix: keyPrefix(env, upstream, tunnelToken || null),
     trustedProxies: (env.TRUSTED_PROXIES || "").split(",").map((s) => s.trim()).filter(Boolean),
     jwtSecret,
     languages: (env.LANGUAGES || "en,nl,fr,de,es").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
@@ -99,6 +132,7 @@ export function loadConfig(env: Env = process.env): Config {
     negativeTtlS: int(env, "NEGATIVE_TTL_S", 5, 0),
     staleIfErrorS: int(env, "STALE_IF_ERROR_S", 300, 0),
     cacheMaxBodyBytes: int(env, "CACHE_MAX_BODY_BYTES", 512 * 1024, 1),
+    maxCacheKeysPerClient: int(env, "MAX_CACHE_KEYS_PER_CLIENT", 256, 1),
     tunnelToken: tunnelToken || null,
     tunnelPath,
     tunnelDeadS: int(env, "TUNNEL_DEAD_S", 60, 3),

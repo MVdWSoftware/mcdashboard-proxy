@@ -63,7 +63,10 @@ The handshake is versioned, because the plugin and the proxy are updated indepen
 `TUNNEL_FEATURES` currently lists `presets`, `history-points`, `upload`, `client-verification` and `player-names`. Each one
 needs something the proxy must do: the dashboard routes, the `points` parameter on `/v1/history/{id}`, the dashboard upload,
 the `X-MCDashboard-Attestation` header, and the `X-MCDashboard-Player` header. The proxy forwards those headers (and
-`X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement`) but only those; every other client header is dropped.
+`X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement`) but only those; every other client header is dropped. Over plain
+HTTP it also forwards `Host` and `X-Forwarded-Host`, so the plugin can compare a client attestation with the host the app
+used; over the tunnel the plugin sees its own loopback `Host`, so list the public hostname in the plugin's
+`security.client-verification.hosts` (then the audience is checked against that list instead).
 
 A proxy that forwards to the plugin over plain HTTP (`UPSTREAM_URL`) instead of the tunnel sends the same list in
 `X-MCDashboard-Proxy-Features` with `X-MCDashboard-Via: proxy`, so the plugin applies the same rule in both modes. Both

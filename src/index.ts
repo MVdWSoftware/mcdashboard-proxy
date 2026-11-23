@@ -21,6 +21,12 @@ if (config.redisUrl) {
   const fb = new FallbackStore(new RedisStore(config.redisUrl, config.keyPrefix));
   fb.onFallback = () => void fallbacks++;
   store = fb;
+  if (config.keyPrefix === "mcdp:") {
+    console.warn("REDIS_KEY_PREFIX=mcdp: is shared by every proxy on this Redis: two servers would serve each other's entries. " +
+      "Leave it unset (a per-backend prefix is derived) or give each server its own prefix");
+  } else {
+    console.log(`Redis namespace ${config.keyPrefix}`);
+  }
 } else {
   console.warn("REDIS_URL is not set: cache and rate limits are per process (fine for one node, not for several)");
   store = new MemoryStore();

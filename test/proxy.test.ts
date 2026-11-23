@@ -46,24 +46,37 @@ describe("caching", () => {
     expect(plugin.seen).toHaveLength(1);
   });
 
-  it("caches per-player answers per caller and never shares them", async () => {
+  it("never shares or caches an answer for a token it cannot verify", async () => {
     const { plugin, port } = await setup();
     const alice = { authorization: "Bearer alice.tok.en" };
     const bob = { authorization: "Bearer bob.tok.en" };
     const a1 = await get(port, "/v1/values?ids=player-name", alice);
     const a2 = await get(port, "/v1/values?ids=player-name", alice);
-    expect(plugin.seen).toHaveLength(1);
-    expect(a2.headers["cache-status"]).toContain("hit");
-    expect(a2.headers["cache-control"]).toBe("private, max-age=2");
-    expect(a2.body).toBe(a1.body);
-    const b1 = await get(port, "/v1/values?ids=player-name", bob);
+    // Without MCD_JWT_SECRET the proxy cannot tell a real token from junk, so it stores nothing (and fills nothing).
     expect(plugin.seen).toHaveLength(2);
+    expect(a2.headers["cache-status"]).toContain("miss");
+    expect(a2.body).toBe(a1.body);
+    expect(a2.headers["cache-control"]).toBe("private, max-age=2");
+    const b1 = await get(port, "/v1/values?ids=player-name", bob);
+    expect(plugin.seen).toHaveLength(3);
     expect(b1.body).toContain("bob.tok.en");
     expect(b1.body).not.toContain("alice");
     const anon = await get(port, "/v1/values?ids=player-name");
-    expect(plugin.seen).toHaveLength(3);
     expect(anon.body).not.toContain("tok.en");
     expect(anon.headers["cache-control"]).toContain("public");
+  });
+
+  it("caches private answers per verified token when the secret is set", async () => {
+    const { plugin, port } = await setup({ MCD_JWT_SECRET: secret.toString("base64") });
+    const exp = Date.now() / 1000 + 60;
+    const one = { authorization: "Bearer " + jwt({ typ: "access", sub: "one", exp }) };
+    const two = { authorization: "Bearer " + jwt({ typ: "access", sub: "two", exp }) };
+    await get(port, "/v1/values?ids=player-name", one);
+    expect((await get(port, "/v1/values?ids=player-name", one)).headers["cache-status"]).toContain("hit");
+    expect(plugin.seen).toHaveLength(1);
+    // A different device is a different scope: it is never served the first one's private answer.
+    expect((await get(port, "/v1/values?ids=player-name", two)).headers["cache-status"]).toContain("miss");
+    expect(plugin.seen).toHaveLength(2);
   });
 
   it("shares entries between the devices of one verified player but not between players", async () => {
@@ -95,10 +108,58 @@ describe("caching", () => {
     expect(plugin.seen).toHaveLength(1);
   });
 
+  it("never coalesces requests that differ in a header the answer depends on", async () => {
+    const { plugin, port } = await setup();
+    plugin.setDelay(100);
+    const players = await Promise.all([get(port, "/v1/values?ids=tps", { "x-mcdashboard-player": "steve" }), get(port, "/v1/values?ids=tps", { "x-mcdashboard-player": "alex" })]);
+    expect(players.every((r) => r.status === 200)).toBe(true);
+    expect(plugin.seen).toHaveLength(2);
+    const agents = await Promise.all([get(port, "/v1/values?ids=online", { "user-agent": "MCDashboard/1.0.0 (ios)" }), get(port, "/v1/values?ids=online", { "user-agent": "curl/8" })]);
+    expect(agents.every((r) => r.status === 200)).toBe(true);
+    expect(plugin.seen).toHaveLength(4);
+    const attestations = await Promise.all([get(port, "/v1/placeholders/tps", { "x-mcdashboard-attestation": "a.b.c" }), get(port, "/v1/placeholders/tps", { "x-mcdashboard-attestation": "d.e.f" })]);
+    expect(attestations.every((r) => r.status === 200)).toBe(true);
+    expect(plugin.seen).toHaveLength(6);
+    // Identical headers still coalesce into one upstream request.
+    const same = await Promise.all([get(port, "/v1/placeholders/online"), get(port, "/v1/placeholders/online")]);
+    expect(same.every((r) => r.status === 200)).toBe(true);
+    expect(plugin.seen).toHaveLength(7);
+  });
+
+  it("caches per typed player name when the server allows player names", async () => {
+    const { plugin, port } = await setup({}, (req, res) => {
+      const player = req.headers["x-mcdashboard-player"] ?? "anon";
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "private, max-age=60",
+        vary: "Authorization, Accept-Language, X-MCDashboard-Player",
+      }).end(JSON.stringify([{ player }]));
+      return true;
+    });
+    const a = await get(port, "/v1/values?ids=player-name", { "x-mcdashboard-player": "Steve" });
+    // Names are resolved without regard to case: one entry, one upstream request.
+    const b = await get(port, "/v1/values?ids=player-name", { "x-mcdashboard-player": "steve" });
+    expect(b.headers["cache-status"]).toContain("hit");
+    expect(b.body).toBe(a.body);
+    expect(plugin.seen).toHaveLength(1);
+    const other = await get(port, "/v1/values?ids=player-name", { "x-mcdashboard-player": "Alex" });
+    expect(other.body).toContain("Alex");
+    expect(other.headers["cache-control"]).toBe("private, max-age=60");
+    expect(plugin.seen).toHaveLength(2);
+    // A client without the header has no name scope and never gets a named entry.
+    const anon = await get(port, "/v1/values?ids=player-name");
+    expect(anon.body).toContain("anon");
+    expect(plugin.seen).toHaveLength(3);
+  });
+
   it("keeps unknown ids away from the plugin after the first miss (negative cache)", async () => {
     const { plugin, port } = await setup();
     for (let i = 0; i < 5; i++) expect((await get(port, "/v1/placeholders/missing")).status).toBe(404);
     expect(plugin.seen).toHaveLength(1);
+    const hit = await get(port, "/v1/placeholders/missing");
+    expect(hit.headers["cache-status"]).toContain("hit");
+    // An error from the proxy's own cache must not be stored by anything in front of it either.
+    expect(hit.headers["cache-control"]).toBe("no-store");
   });
 
   it("serves a stale copy while the plugin is down, and 502 when there is none", async () => {
@@ -253,6 +314,73 @@ describe("protection", () => {
     expect(h["x-mcdashboard-proxy-features"]).toContain("history-points");
     expect(h.cookie).toBeUndefined();
     expect(h["x-evil"]).toBeUndefined();
+    // The plugin verifies client attestations against the host the client used, so it must not see the proxy's own.
+    expect(h.host).toBe(`127.0.0.1:${port}`);
+    expect(h["x-forwarded-host"]).toBe(`127.0.0.1:${port}`);
+    // A Host that is not a host name is dropped instead of being written into an upstream header.
+    await get(port, "/v1/dashboard", { host: "bad host" });
+    expect(plugin.seen[1]!.headers.host).toBe(`127.0.0.1:${plugin.port}`);
+  });
+
+  it("forwards an attestation up to the 4096 characters the plugin accepts", async () => {
+    const { plugin, port } = await setup();
+    const long = "a".repeat(3000) + "." + "b".repeat(1000);
+    await get(port, "/v1/info", { "x-mcdashboard-attestation": long });
+    expect(plugin.seen[0]!.headers["x-mcdashboard-attestation"]).toBe(long);
+    await get(port, "/v1/dashboard", { "x-mcdashboard-attestation": "x".repeat(5000) });
+    expect(plugin.seen[1]!.headers["x-mcdashboard-attestation"]).toHaveLength(4096);
+  });
+
+  it("refuses an absurd typed player name instead of caching it", async () => {
+    const { plugin, port } = await setup();
+    const r = await get(port, "/v1/info", { "x-mcdashboard-player": "p".repeat(65) });
+    expect(r.status).toBe(400);
+    expect(plugin.seen).toHaveLength(0);
+  });
+
+  it("answers CORS preflights locally, as the plugin does", async () => {
+    const { plugin, port } = await setup();
+    const r = await get(port, "/v1/values?ids=tps", { origin: "https://app.example", "access-control-request-method": "GET" }, "OPTIONS");
+    expect(r.status).toBe(204);
+    expect(r.headers["access-control-allow-origin"]).toBe("*");
+    expect(r.headers["access-control-allow-methods"]).toContain("DELETE");
+    expect(r.headers["access-control-allow-headers"]).toContain("X-MCDashboard-Player");
+    expect(r.headers["cache-control"]).toBe("no-store");
+    expect(plugin.seen).toHaveLength(0);
+    // Normal answers carry the same headers, so a browser can read them.
+    const g = await get(port, "/v1/info");
+    expect(g.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("rate limits preflights like any other read", async () => {
+    const { plugin, port } = await setup({ RATE_READ: "1" });
+    expect((await get(port, "/v1/info", {}, "OPTIONS")).status).toBe(204);
+    const limited = await get(port, "/v1/info", {}, "OPTIONS");
+    expect(limited.status).toBe(429);
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(plugin.seen).toHaveLength(0);
+  });
+
+  it("caps how many distinct entries one client may add, so it cannot fill the cache", async () => {
+    const { plugin, port } = await setup({ MAX_CACHE_KEYS_PER_CLIENT: "1", TRUSTED_PROXIES: "127.0.0.1" });
+    // The first client fills its budget with one key; its next new key is forwarded but never stored.
+    expect((await get(port, "/v1/placeholders/a", { "x-forwarded-for": "198.51.100.1" })).status).toBe(200);
+    expect((await get(port, "/v1/placeholders/b", { "x-forwarded-for": "198.51.100.1" })).status).toBe(200);
+    expect((await get(port, "/v1/placeholders/b", { "x-forwarded-for": "198.51.100.1" })).status).toBe(200);
+    expect(plugin.seen).toHaveLength(3);
+    // A known key in the same window is still served from the cache.
+    expect((await get(port, "/v1/placeholders/a", { "x-forwarded-for": "198.51.100.1" })).headers["cache-status"]).toContain("hit");
+    // Another client has its own budget.
+    expect((await get(port, "/v1/placeholders/b", { "x-forwarded-for": "198.51.100.2" })).status).toBe(200);
+    expect((await get(port, "/v1/placeholders/b", { "x-forwarded-for": "198.51.100.2" })).headers["cache-status"]).toContain("hit");
+    expect(plugin.seen).toHaveLength(4);
+  });
+
+  it("does not cache free-text search or a history window", async () => {
+    const { plugin, port } = await setup();
+    for (let i = 0; i < 3; i++) await get(port, "/v1/placeholders?q=tps");
+    for (let i = 0; i < 3; i++) await get(port, "/v1/history/tps?since=100&points=150");
+    expect(plugin.seen).toHaveLength(6);
   });
 
   it("answers 400 to a request target it cannot parse", async () => {

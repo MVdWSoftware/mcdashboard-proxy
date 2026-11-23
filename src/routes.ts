@@ -31,6 +31,12 @@ interface Def {
   methods: Record<string, Route>;
   query?: Record<string, (v: string) => string | null>;
   param?: (v: string) => boolean;
+  /**
+   * Whether this request may be cached. Validated parameters can still be unbounded in combination: free-text searches
+   * (`q`, `group`), history windows (`since`, `points`) and id subsets would each add keys without end, so those are
+   * forwarded but never stored.
+   */
+  cacheWhen?: (params: URLSearchParams) => boolean;
 }
 
 const read = (name: string): Route => ({ name, rate: "read", cacheable: true, hasBody: false });
@@ -43,6 +49,12 @@ const ids = (max: number) => (v: string): string | null => {
 const num = (min: number, max: number, what: string) => (v: string): string | null =>
   /^\d{1,10}$/.test(v) && Number(v) >= min && Number(v) <= max ? null : `${what} must be ${min}-${max}`;
 const text = (max: number, what: string) => (v: string): string | null => (v.length <= max ? null : `${what} is too long`);
+
+/** The plugin's list view: `ids` is a bounded batch lookup, free-text search and paging are not cached. */
+const listCacheable = (params: URLSearchParams): boolean => !params.has("q") && !params.has("group");
+
+/** The history route: a window (`since`, `points`) is a new answer every time, so only the default window is cached. */
+const historyCacheable = (params: URLSearchParams): boolean => !params.has("since") && !params.has("points");
 
 const DEFS: Def[] = [
   { pattern: /^\/v1\/info$/, methods: { GET: read("info") } },
@@ -58,10 +70,17 @@ const DEFS: Def[] = [
       offset: num(0, 1_000_000, "offset"),
       ids: (v) => (v === "" ? null : ids(100)(v)),
     },
+    cacheWhen: listCacheable,
   },
   { pattern: /^\/v1\/placeholders\/([^/]+)$/, methods: { GET: read("placeholder") }, param: (v) => PLACEHOLDER_ID.test(v) },
   { pattern: /^\/v1\/values$/, methods: { GET: read("values") }, query: { ids: ids(100) } },
-  { pattern: /^\/v1\/history\/([^/]+)$/, methods: { GET: read("history") }, param: (v) => PLACEHOLDER_ID.test(v), query: { since: num(0, 4_102_444_800, "since"), points: num(2, 2000, "points") } },
+  {
+    pattern: /^\/v1\/history\/([^/]+)$/,
+    methods: { GET: read("history") },
+    param: (v) => PLACEHOLDER_ID.test(v),
+    query: { since: num(0, 4_102_444_800, "since"), points: num(2, 2000, "points") },
+    cacheWhen: historyCacheable,
+  },
   {
     pattern: /^\/v1\/dashboards$/,
     methods: { GET: read("dashboards"), POST: { name: "dashboardUpload", rate: "write", cacheable: false, hasBody: true } },
@@ -87,6 +106,7 @@ export function match(method: string, path: string, params: URLSearchParams): Ma
       if (err) return { kind: "badRequest", message: err };
     }
     if (route.name === "values" && !seen.has("ids")) return { kind: "badRequest", message: "ids must list 1-100 placeholder ids" };
+    if (def.cacheWhen && !def.cacheWhen(params)) return { kind: "route", route: { ...route, cacheable: false } };
     return { kind: "route", route };
   }
   return { kind: "notFound" };

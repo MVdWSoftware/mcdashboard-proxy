@@ -13,9 +13,10 @@ All settings are environment variables. Invalid values stop the proxy at startup
 | `TUNNEL_PATH` | `/tunnel` | Where the plugin connects |
 | `TUNNEL_DEAD_S` | `60` | Silence after which the tunnel is dropped as dead; see [health checks](tunnel.md#health-checks-and-reconnection) |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` / `8080` | Public listener (put TLS in front) |
-| `ADMIN_HOST` / `ADMIN_PORT` | `127.0.0.1` / `9090` | `/healthz`, `/readyz`, `/tunnelz`, `/metrics`; `ADMIN_PORT=0` disables it. Never expose it publicly; in a container set `ADMIN_HOST=0.0.0.0` only when something on the container network scrapes it |
+| `ADMIN_HOST` / `ADMIN_PORT` | `127.0.0.1` / `9090` | `/healthz`, `/readyz`, `/tunnelz`, `/metrics`; `ADMIN_PORT=0` disables it (the Docker health check then only verifies that the public port accepts connections). Never expose it publicly; in a container set `ADMIN_HOST=0.0.0.0` only when something on the container network scrapes it. `/readyz` is 200 while the plugin answers, also during a Redis outage (the memory fallback keeps serving); watch `mcdp_redis_up` instead |
 | `REDIS_URL` | unset | e.g. `redis://:password@redis:6379`. Unset = in-memory (single node) |
-| `REDIS_KEY_PREFIX` | `mcdp:` | Lets several proxies share one Redis without clashing |
+| `REDIS_PASSWORD` | unset | Password given separately, added to `REDIS_URL` percent-encoded, so it may contain `@ : / #` without escaping. Use this or a password in `REDIS_URL`, not both |
+| `REDIS_KEY_PREFIX` | derived | Namespace for every key. Unset derives `mcdp:<8 hex of UPSTREAM_URL>` (or of the tunnel key), so two proxies for two servers can share one Redis without cross-serving. Set it explicitly to share cache and counters between proxies that serve the same server. `mcdp:` alone is shared by everyone and logs a warning |
 
 ## Client identity
 
@@ -56,6 +57,7 @@ Over the limit the answer is `429` with `Retry-After`.
 | `STALE_IF_ERROR_S` | `300` | How long past expiry a copy may be served while the plugin fails or is restarting |
 | `NEGATIVE_TTL_S` | `5` | How long `404` (and `401` outside a player scope) answers without cache headers are remembered; `0` disables. See [negative caching](architecture.md#cache-rules) |
 | `CACHE_MAX_BODY_BYTES` | `524288` | Larger answers are not cached |
+| `MAX_CACHE_KEYS_PER_CLIENT` | `256` | How many new entries one client may add per five minutes (per node). Free-text `q`/`group`, history `since`/`points` and an over-budget client are forwarded but not stored. See [cache rules](architecture.md#cache-rules) |
 | `LANGUAGES` | `en,nl,fr,de,es` | Languages the plugin supports; `Accept-Language` is reduced to these for the cache key |
 
 ## Token check (optional)
@@ -66,13 +68,14 @@ Over the limit the answer is `429` with `Retry-After`.
 
 With the secret set, requests with an invalid or expired `Authorization` header are answered `401` at the
 proxy, and per-player cache entries are keyed by the player, so a player's devices share them. Without it,
-tokens are passed through unchecked and entries are keyed per token. Revoked devices are refused through the
-[revocation feed](#device-revocations), and by the plugin on every cache miss.
+tokens are passed through unchecked and authenticated answers are not cached (a random token must not be able to fill
+the cache one entry at a time; unauthenticated `public` answers are still cached and shared). Revoked devices are refused
+through the [revocation feed](#device-revocations), and by the plugin on every cache miss.
 
 ## Device revocations
 
 Without these, a revoked device can still be served what is cached for its player until that entry expires (at most
-one `min-interval`). With either, it is refused at once. Details and the plugin side: [plugin `docs/events.md`](https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin/blob/main/docs/events.md).
+one `min-interval`). With either, it is refused at once. Details and the plugin side: [plugin `docs/events.md`](https://github.com/MVdWSoftware/mcdashboard-plugin/blob/main/docs/events.md).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

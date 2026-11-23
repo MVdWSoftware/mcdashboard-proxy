@@ -5,6 +5,13 @@
 
 import type { Store } from "./store.js";
 
+/**
+ * A counter key already names its window, so its TTL only decides how long the key occupies memory. It is kept for two
+ * windows: with an eviction policy that drops the shortest TTL first, counters then outlive cache entries instead of
+ * being the first thing a full Redis throws away (which would reset the limits that stop a cache-fill).
+ */
+const COUNTER_RETENTION = 2;
+
 /** Fixed-window per-client counters kept in the shared store, so every proxy node sees the same count. */
 export class RateLimiter {
   constructor(private readonly store: Store, private readonly windowS: number) {}
@@ -12,7 +19,7 @@ export class RateLimiter {
   /** Counts one hit; `retryAfterS` is the time until the window resets. */
   async hit(scope: string, client: string, limit: number): Promise<{ allowed: boolean; retryAfterS: number }> {
     const windowMs = this.windowS * 1000;
-    const count = await this.store.hit(`rl:${scope}:${client}:${Math.floor(Date.now() / windowMs)}`, windowMs);
+    const count = await this.store.hit(`rl:${scope}:${client}:${Math.floor(Date.now() / windowMs)}`, windowMs * COUNTER_RETENTION);
     const retryAfterS = Math.max(1, this.windowS - Math.floor((Date.now() % windowMs) / 1000));
     return { allowed: count <= limit, retryAfterS };
   }

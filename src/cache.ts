@@ -16,16 +16,32 @@ export interface Cached {
 }
 
 /**
- * Who a cached answer belongs to. `player` is a verified player (shared by their devices), `token` a verified token
- * without a player, `unverified` a token the proxy cannot check (no `MCD_JWT_SECRET`).
+ * Who a cached answer belongs to. `player` is a verified player (shared by their devices) or a typed player name that
+ * `security.allow-player-names` lets an unpaired client choose, `token` a verified token without a player, `unverified`
+ * a token the proxy cannot check (no `MCD_JWT_SECRET`).
  */
 export type ScopeKind = "anonymous" | "player" | "token" | "unverified";
 
 /** Response headers that are kept; everything else the plugin sends is dropped. */
 export const PASS_HEADERS = ["content-type", "cache-control", "etag", "vary", "content-language", "www-authenticate", "retry-after"];
 
-/** Headers the cache key already covers (scope, canonical language) or that the proxy never sends. */
-const KEYED_VARY = new Set(["authorization", "accept-language", "accept-encoding"]);
+/**
+ * Headers the cache key already covers (scope, canonical language, typed player) or that the proxy never sends.
+ * `X-MCDashboard-Player` is in the plugin's `Vary` on servers with `security.allow-player-names`; without it here,
+ * every answer to such a server would be refused by `freshness` and caching would silently be off.
+ */
+const KEYED_VARY = new Set(["authorization", "accept-language", "accept-encoding", "x-mcdashboard-player"]);
+
+/** Longest accepted `X-MCDashboard-Player`: a Minecraft name has 16 characters, a UUID 36. */
+export const MAX_PLAYER_HEADER = 64;
+
+/**
+ * The typed player name as it belongs in the cache key: trimmed and lowercased, because the plugin resolves names
+ * without regard to case, so `Steve` and `steve` are one player and must share one entry.
+ */
+export function canonicalPlayer(header: string | undefined): string {
+  return (header ?? "").trim().toLowerCase();
+}
 
 export function pick(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -40,9 +56,10 @@ export function pick(headers: Record<string, string | string[] | undefined>): Re
 /**
  * Freshness for a response, or null when it must not be stored.
  *
- * - Anonymous requests store only `public` answers; scoped ones also `private` answers, under their own scope.
- * - An unverified token stores only `private` answers: a `public` one means the plugin did not recognise the token,
- *   and storing it per random token would let anyone fill the cache.
+ * - Anonymous requests store only `public` answers; scoped ones (verified tokens and typed player names) also `private`
+ *   answers, under their own scope.
+ * - An answer for a token the proxy cannot verify is never stored: a random bearer token would otherwise let anyone
+ *   fill the shared cache one entry at a time. Set `MCD_JWT_SECRET` to cache authenticated answers.
  * - Errors are remembered for `negativeTtlS`: `404` in any scope, `401` only where it cannot belong to another
  *   device's token, never `403` (the plugin answers it for a User-Agent it refuses, so one client could poison it
  *   for all), and nothing for unverified tokens.
@@ -56,8 +73,9 @@ export function freshness(status: number, headers: Record<string, string>, kind:
   const isPublic = /(^|,\s*)public\b/.test(cc);
   if (isPrivate && kind === "anonymous") return null;
   if (status === 200) {
+    if (kind === "unverified") return null;
     const m = /(?:^|,\s*)(?:s-maxage|max-age)=(\d+)/.exec(cc);
-    if (!m || !(kind === "unverified" ? isPrivate : isPrivate || isPublic)) return null;
+    if (!m || !(isPrivate || isPublic)) return null;
     const age = Number(m[1]);
     return age > 0 ? age : null;
   }
@@ -69,9 +87,12 @@ export function freshness(status: number, headers: Record<string, string>, kind:
 export class ResponseCache {
   constructor(private readonly store: Store, private readonly staleIfErrorS: number, private readonly maxBody: number) {}
 
-  /** `scope` is "" for anonymous requests, or the identity of the caller (`p:<player>` / `t:<token hash>`). */
-  static key(path: string, query: string, languages: string, scope = ""): string {
-    return "c:" + createHash("sha256").update(`${path}?${query}|${languages}|${scope}`).digest("base64url").slice(0, 32);
+  /**
+   * `scope` is "" for anonymous requests, or the identity of the caller (`p:<player>`, `t:<token hash>` or the typed
+   * name `n:<player>`); `player` is the canonical typed name from `X-MCDashboard-Player`.
+   */
+  static key(path: string, query: string, languages: string, scope = "", player = ""): string {
+    return "c:" + createHash("sha256").update(`${path}?${query}|${languages}|${scope}|${player}`).digest("base64url").slice(0, 32);
   }
 
   async get(key: string): Promise<Cached | null> {

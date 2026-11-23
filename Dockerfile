@@ -18,5 +18,7 @@ COPY --from=build /app/dist ./dist
 COPY package.json ./
 USER node
 EXPOSE 8080 9090
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:9090/healthz || exit 1
+# With the admin port on, /healthz proves the event loop answers. ADMIN_PORT=0 disables it on purpose, so then only
+# check that the public listener accepts a connection; a hardcoded 9090 would leave the container permanently unhealthy.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD ["sh", "-c", "p=\"${ADMIN_PORT:-9090}\"; if [ \"$p\" != 0 ]; then wget -qO- \"http://127.0.0.1:$p/healthz\" >/dev/null; else node -e 'require(\"node:net\").connect(Number(process.env.LISTEN_PORT || 8080), \"127.0.0.1\").on(\"connect\", function () { this.end(); process.exit(0); }).on(\"error\", function () { process.exit(1); });'; fi"]
 CMD ["node", "dist/index.js"]

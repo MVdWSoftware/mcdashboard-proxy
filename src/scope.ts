@@ -18,6 +18,15 @@ export interface Scope {
 
 export const ANONYMOUS: Scope = { key: "", kind: "anonymous" };
 
+/**
+ * The scope an answer is stored under. A typed player name (`security.allow-player-names`) identifies the caller as a
+ * token does: the plugin then computes `private` answers for a request without `Authorization`, per player. Without
+ * this, such answers would be refused as "private for an anonymous client" and caching would be off on those servers.
+ */
+export function withPlayer(scope: Scope, player: string): Scope {
+  return scope.kind === "anonymous" && player !== "" ? { key: `n:${player}`, kind: "player" } : scope;
+}
+
 const INVALID_TOKEN = { "www-authenticate": 'Bearer error="invalid_token"' };
 
 /**

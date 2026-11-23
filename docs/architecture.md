@@ -10,6 +10,7 @@
 | `src/routes.ts` | Route allowlist of the API contract, canonical query and language |
 | `src/scope.ts` | Cache scope of a caller (token check, revocation check, bad-token throttle) |
 | `src/cache.ts` | What may be stored and for how long, cache entries in the store |
+| `src/budget.ts` | Per-client cap on how many new cache keys may be added (cache-fill protection) |
 | `src/respond.ts` | Error and pass-through responses, bounded body reading |
 | `src/clientip.ts` | Client address behind trusted proxies, address lists, rate-limit buckets |
 | `src/metrics.ts` | Prometheus counters |
@@ -27,43 +28,57 @@
 2. **Route allowlist** (`src/routes.ts`). Method, path and every query parameter are checked against the
    API contract: ids must look like ids (`[A-Za-z0-9_.-]{1,64}`), `ids` lists have at most 100 entries, unknown
    or repeated parameters are `400`. Unknown paths are `404` and wrong methods `405`; none of them reach the plugin.
+   `OPTIONS` is answered `204` with the CORS headers the plugin itself sends (`Access-Control-Allow-*`), without
+   consulting the contract, exactly as the plugin does; every answer, errors included, carries those headers.
 3. **Rate limit** per client and class (read, auth, write) in the shared store.
 4. **Token check** when `MCD_JWT_SECRET` is set (signature, type and expiry).
 5. **Body**: only for the three routes that take one; `Content-Length` required, size limited, JSON only.
 6. **Cache** (`GET`/`HEAD`, scoped per caller), then **plugin** with the concurrency cap.
 
 Only a fixed set of request headers (`Accept`, `Accept-Language`, `Authorization`, `Content-Type`,
-`If-None-Match`, `User-Agent`) is passed on, and only a fixed set of response headers comes back
-(`Content-Type`, `Cache-Control`, `ETag`, `Vary`, `Content-Language`, `WWW-Authenticate`, `Retry-After`).
+`If-None-Match`, `User-Agent`, the `X-MCDashboard-*` headers) is passed on, always with the client's `Host` (and
+`X-Forwarded-Host`) so the plugin can verify a client attestation against the host the client used, and only a fixed
+set of response headers comes back (`Content-Type`, `Cache-Control`, `ETag`, `Vary`, `Content-Language`,
+`WWW-Authenticate`, `Retry-After`).
 
 ## Cache rules
 
 The plugin already describes what is shareable (see its `docs/reverse-proxy.md`); the proxy follows it:
 
 - A response is stored only if the plugin answered `200` with `Cache-Control: max-age=N` (`N > 0`) and it is
-  `public` (anonymous requests) or `private` (requests with a token). `no-store` is never stored, nor is an answer whose
-  `Vary` names a header the key does not cover (anything but `Authorization` and `Accept-Language`).
-- **Scope.** Anonymous requests share one scope. A request with a token gets its own: with `MCD_JWT_SECRET`
-  the verified player (`p:<player uuid>`, so all of a player's devices share entries), without it a hash of the
-  token (`t:<hash>`). The scope is part of the key, so a per-player answer such as `player-name` is cached per
-  player and can never be served to another player or to an anonymous client. Towards clients the answer
-  stays `Cache-Control: private`.
+  `public` (anonymous requests) or `private` (requests with a token or a typed player name). `no-store` is never stored,
+  nor is an answer whose `Vary` names a header the key does not cover (anything but `Authorization`,
+  `Accept-Language` and `X-MCDashboard-Player`).
+- **Scope.** An anonymous request without identity shares one scope. A request with a token gets its own: with
+  `MCD_JWT_SECRET` the verified player (`p:<player uuid>`, so all of a player's devices share entries), without it a hash
+  of the token (`t:<hash>`, never cached because it cannot be verified, see below). A request with a typed
+  `X-MCDashboard-Player` and no token gets `n:<name>` (`security.allow-player-names`): the plugin then answers `private`
+  per player, and that answer may be cached but only ever served to the same typed name. The scope is part of the key, so
+  a per-player answer such as `player-name` can never be served to another player or to an anonymous client. Towards
+  clients the answer stays `Cache-Control: private`.
 - Entries stay fresh for `N` seconds (the placeholder's `min-interval`) and are served with an `Age` header
   and `Cache-Status: mcdashboard-proxy; hit` (RFC 9211).
-- **Key** = path + sorted query + the languages of `Accept-Language` that the server supports, in order.
-  `?ids=b,a` and `?ids=a,b` are one entry; arbitrary header values cannot create new entries. On a miss the plugin
-  is asked with exactly those languages (no header when none is supported), so it cannot answer in a language the key
-  does not tell apart.
+- **Key** = path + sorted query + the languages of `Accept-Language` that the server supports, in order + the scope and
+  the typed player name. `?ids=b,a` and `?ids=a,b` are one entry; arbitrary header values cannot create new entries. On a
+  miss the plugin is asked with exactly those languages (no header when none is supported), so it cannot answer in a
+  language the key does not tell apart.
+- **Not every validated request is cacheable.** Free-text search (`q`, `group` on `/v1/placeholders`) and a history
+  window (`since`, `points`) are bounded in length but not in combinations, so those requests are forwarded and never
+  stored. On top of that, one client may add at most `MAX_CACHE_KEYS_PER_CLIENT` new entries per five minutes
+  (`src/budget.ts`, per node): the cache is shared, and reads are never limited.
 - **Revalidation.** A stale entry is refreshed with `If-None-Match`; a `304` renews it without transferring a body.
   Clients that send `If-None-Match` get `304` from the proxy directly.
-- **Coalescing.** Simultaneous misses for the same key share one upstream request.
+- **Coalescing.** Simultaneous misses for the same cache key share one upstream request, but only when the request
+  headers that shape the answer are equal too: a digest of `User-Agent`, `X-MCDashboard-Attestation`,
+  `X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement` is part of the in-flight key. Two clients that differ in the
+  player they name, their app, or their attestation never receive each other's in-flight answer.
 - **Stale-if-error.** If the plugin times out, errors or restarts, a copy up to `STALE_IF_ERROR_S`
-  past expiry is served; otherwise the client gets `502`.
+  past expiry is served; otherwise the client gets `502` (a 5xx body from the plugin is replaced by a generic JSON error).
 - **Negative caching.** Errors the plugin sends without cache headers are remembered for `NEGATIVE_TTL_S`, so a flood
   of requests for unknown ids is answered by the proxy: `404` in every scope, `401` only where it cannot belong to another
   device's token (anonymous or per-token scope). `403` is never remembered: the plugin answers it for a `User-Agent` it does
   not accept, so one client could otherwise make every app see it. The current plugin sends `Cache-Control: no-store` on
-  errors, which turns negative caching off.
+  errors, which turns negative caching off. Every error the proxy answers carries `Cache-Control: no-store`.
 
 Limits of per-player caching:
 
@@ -71,18 +86,20 @@ Limits of per-player caching:
   game can still read what is already cached for its player until that entry expires (at most the placeholder's
   `min-interval`, seconds). See [Revocation feed](#revocation-feed) to close that gap. Tokens that were never verified
   are not given long-lived entries for the same reason.
-- **Unverified tokens.** Without `MCD_JWT_SECRET` the proxy cannot tell whether a token is genuine; it only
-  stores `private` answers the plugin returned for that exact token. A `public` answer means the plugin did not
-  recognise the token, so it is not stored (random tokens cannot fill the cache), and errors are not remembered. Set
-  the secret to key by player and to reject forged tokens before they cost anything.
+- **Unverified tokens.** Without `MCD_JWT_SECRET` the proxy cannot tell whether a token is genuine, so it stores no
+  answers for a request with one: a random bearer token would otherwise let anyone add entries one at a time. Errors are
+  not remembered either. Set the secret to key by player or device and to reject forged tokens before they cost anything.
 - **Client policy.** The plugin refuses unknown apps by `User-Agent` (`403`, or `426` for an app that is too old). The
   proxy forwards the header, but a cached answer is served whatever the `User-Agent`; the plugin itself treats it as an
-  identification, not a credential.
-- Entries are short-lived and bounded by Redis `maxmemory` (`volatile-ttl`, which evicts them before revocation state), so many players cannot grow the cache unboundedly.
+  identification, not a credential. In-flight answers are not shared across a different `User-Agent` (see coalescing).
+- Entries are short-lived and bounded by Redis `maxmemory`. Evict the least recently used key, not the one closest to
+  expiry (`volatile-lru`): with `volatile-ttl` the rate-limit counters (60 s) would go before any cache entry, which
+  resets exactly the limits that stop a cache-fill. Counters are kept for two windows for the same reason; the
+  revocation trade-off of LRU is in [deployment.md](deployment.md#docker-compose).
 
 ## Revocation feed
 
-The plugin announces revoked devices ([plugin `docs/events.md`](https://git.mvdw-software.com/mcdashboard/mcdashboard-plugin/blob/main/docs/events.md)),
+The plugin announces revoked devices ([plugin `docs/events.md`](https://github.com/MVdWSoftware/mcdashboard-plugin/blob/main/docs/events.md)),
 either as a stream the proxy follows (`EVENTS_TOKEN`) or as signed webhooks the proxy receives (`WEBHOOK_*`). Both feed the same
 two structures in the shared store, so every proxy node acts at once:
 
@@ -101,7 +118,7 @@ logs a warning at startup. Open live-feed tunnels are not affected by revocation
 
 | Failure | Result |
 | --- | --- |
-| Redis down | Falls back to a per-process memory store for 5 s at a time; API stays up (limits, cache and deny list become per node, so a device revoked before the outage is only caught by the plugin on a miss). `mcdp_redis_up` goes to 0 |
+| Redis down | Falls back to a per-process memory store for 5 s at a time; API stays up (limits, cache and deny list become per node, so a device revoked before the outage is only caught by the plugin on a miss). `mcdp_redis_up` goes to 0, `/readyz` stays 200: taking every node out of the load balancer on a Redis hiccup would replace a degraded proxy with none |
 | Plugin down / slow | Stale copies are served; otherwise `502` with `Retry-After: 5` |
 | Event stream down | Reconnects with backoff; on resume the plugin replays what was missed, or sends `reset` and the per-player cache is dropped |
 | Plugin saturated | `503` with `Retry-After: 1` once `MAX_UPSTREAM_CONCURRENCY` requests are in flight |

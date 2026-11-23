@@ -15,11 +15,20 @@ rather than the game server.
 ## Docker Compose
 
 `docker-compose.yml` starts the proxy and a password-protected Redis (no published port,
-128 MB, no persistence). The eviction policy is `volatile-ttl`, so a full Redis drops short-lived cache entries
-before the revocation deny list and cache generation; with `allkeys-lru` a revoked device could be served cached
-answers again until its token expires. Configure it through `.env`
-([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every variable. The image runs as
-the unprivileged `node` user and keeps the admin port on the container's loopback (enough for its health check).
+128 MB, no persistence). The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry, which
+is a cold cache entry, not a hot rate-limit counter. `volatile-ttl` would drop the entry closest to expiry, and that is
+the 60-second counter rather than a cache entry (cache entries live `max-age` + `STALE_IF_ERROR_S`); resetting the
+counters is exactly what a cache-fill wants, so the limits would fall away one by one. `allkeys-lru` would also evict
+non-expiring keys and says nothing about policy, so it is not used either.
+
+The trade-off to know about: LRU has no notion of importance, so under sustained pressure it can eventually evict a
+revocation deny-list entry that no device has asked about for a long time. That list is tiny (one short value per
+revoked device) and is the reason Redis needs enough `maxmemory` for the deny list plus the working set, not only for
+the cache. Watch `mcdp_redis_up` and the evicted-keys metric of Redis itself.
+
+Configure it through `.env` ([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every
+variable. The image runs as the unprivileged `node` user, keeps the admin port on the container's loopback (enough for
+its health check), and only falls back to a TCP check on the public port when `ADMIN_PORT=0` disables the admin listener.
 
 ```sh
 docker compose up -d
@@ -53,10 +62,19 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;   # map $http_upgrade $connection_upgrade { default upgrade; '' close; }
         proxy_set_header X-Forwarded-For $remote_addr;
+        # Keep the hostname the app called: the plugin verifies client attestations against it (nginx would
+        # otherwise send its own proxy_pass address instead).
+        proxy_set_header Host $host;
         proxy_read_timeout 120s;
     }
 }
 ```
+
+Caddy preserves `Host` by default. The proxy forwards it (and `X-Forwarded-Host`) to the plugin. For
+`security.client-verification`, prefer listing the public hostname in the plugin's `security.client-verification.hosts`:
+the assertion's audience is then checked against that list, which also works through the reverse tunnel (where the plugin
+sees its own loopback `Host`). With that list empty the plugin compares the audience to the `Host` header, so the
+terminator and the proxy must pass it through (nginx: `proxy_set_header Host $host`, as above).
 
 Set `TRUSTED_PROXIES=127.0.0.1` for either when the proxy runs directly on the host. With the compose file the proxy
 sees the Docker bridge gateway instead (for example `172.17.0.1`; check with `docker network inspect`), so trust that
@@ -79,10 +97,11 @@ crosses a network you do not control. Check `mcdp_events_connected` (1 = stream 
 
 ## Monitoring
 
-Scrape `http://<proxy>:9090/metrics` with Prometheus and use `/readyz` for load balancer checks (it verifies
-the plugin and Redis). In Docker, set `ADMIN_HOST=0.0.0.0` for that and keep port 9090 off any published or public
-interface. Watch the cache hit ratio (`mcdp_cache_total`), `mcdp_rejected_total{reason}` for attacks and
-`mcdp_upstream_errors_total` for plugin trouble.
+Scrape `http://<proxy>:9090/metrics` with Prometheus and use `/readyz` for load balancer checks (it verifies that the
+plugin answers; a Redis outage does not make it fail, because the proxy keeps serving from memory). In Docker, set
+`ADMIN_HOST=0.0.0.0` for that and keep port 9090 off any published or public interface. Watch the cache hit ratio
+(`mcdp_cache_total`), `mcdp_rejected_total{reason}` for attacks, `mcdp_upstream_errors_total` for plugin trouble and
+`mcdp_redis_up` / `mcdp_store_fallback_total` for Redis.
 
 ## Upgrading
 

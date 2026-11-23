@@ -82,16 +82,31 @@ describe("revalidation and stale answers", () => {
     expect((await get(port, "/v1/info")).status).toBe(304);
   });
 
-  it("serves the stale copy on a plugin 5xx, and passes the 5xx on when nothing is cached", async () => {
+  it("serves the stale copy on a plugin 5xx, and a generic error when nothing is cached", async () => {
     let fail = false;
-    const { port } = await setup({}, (_req, res) => { if (!fail) return false; res.writeHead(500).end("{}"); return true; });
+    const { port } = await setup({}, (_req, res) => { if (!fail) return false; res.writeHead(500, { "content-type": "text/plain" }).end("secret stack trace"); return true; });
     expect((await get(port, "/v1/info")).status).toBe(200);
     fail = true;
     await sleep(2100);
     const stale = await get(port, "/v1/info");
     expect(stale.status).toBe(200);
     expect(stale.headers["cache-status"]).toContain("stale");
-    expect((await get(port, "/v1/dashboard")).status).toBe(500);
+    const r = await get(port, "/v1/dashboard");
+    expect(r.status).toBe(500);
+    // The plugin's error body can name hosts and internals, and it is never cacheable.
+    expect(r.body).toBe('{"error":"upstream error"}');
+    expect(r.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("passes a 4xx body on but marks it no-store", async () => {
+    const { port } = await setup({}, (_req, res) => {
+      res.writeHead(426, { "content-type": "application/json" }).end('{"error":"update the app"}');
+      return true;
+    });
+    const r = await get(port, "/v1/info");
+    expect(r.status).toBe(426);
+    expect(r.body).toBe('{"error":"update the app"}');
+    expect(r.headers["cache-control"]).toBe("no-store");
   });
 
   it("conditional requests on bypassed answers", async () => {
@@ -102,17 +117,19 @@ describe("revalidation and stale answers", () => {
 });
 
 describe("readiness", () => {
-  it("is ready when the plugin and the store answer, not when the plugin is down or the store is", async () => {
+  it("is ready while the plugin answers, even when Redis is down (the memory fallback keeps serving)", async () => {
     const a = await setup();
     expect(await a.proxy.ready()).toBe(true);
     const mem = new MemoryStore();
     const b = await setup({}, undefined, { get: (k) => mem.get(k), set: (k, v, t) => mem.set(k, v, t), hit: (k, w) => mem.hit(k, w), ping: async () => false, close: async () => {} });
-    expect(await b.proxy.ready()).toBe(false);
+    expect(await b.proxy.ready()).toBe(true);
     const c = await startProxy({ UPSTREAM_URL: "http://127.0.0.1:1" });
     stops.push(c.close);
     expect(await c.proxy.ready()).toBe(false);
     const d = await startProxy({ TUNNEL_TOKEN: "k".repeat(40) });
     stops.push(d.close);
     expect(await d.proxy.ready()).toBe(false);
+    const e = await setup({}, (_req, res) => { res.writeHead(503).end(); return true; });
+    expect(await e.proxy.ready()).toBe(false);
   });
 });

@@ -22,11 +22,14 @@ the game has to do. The proxy:
 
 - **Caches** answers in Redis, per player for player-specific placeholders (never shared between players), for exactly the `max-age` the plugin announces, so a
   placeholder is resolved once per interval however many clients ask. Concurrent misses are coalesced into
-  one request, stale entries are revalidated with `If-None-Match`, and a stale copy is served while the
-  server restarts.
+  one request (never across a different player, typed player name, `User-Agent` or client attestation), stale
+  entries are revalidated with `If-None-Match`, and a stale copy is served while the server restarts.
 - **Protects** the server: only the routes of the API contract are forwarded, queries and bodies are
-  validated and bounded, clients are rate limited (pairing and uploads far stricter than reads), and the
-  number of simultaneous requests towards the plugin is capped, shedding load with `503` instead of queueing.
+  validated and bounded, clients are rate limited (pairing and uploads far stricter than reads), the
+  number of simultaneous requests towards the plugin is capped, shedding load with `503` instead of queueing,
+  and one client can add only a bounded number of new cache entries.
+- **Speaks the same HTTP as the plugin**: CORS headers on every answer and `OPTIONS` preflights answered
+  locally, so browser clients work through the proxy exactly as they do against the plugin.
 - **Follows revocations**: a device revoked in game is refused at once, even for cached answers, through the plugin's event stream or a signed webhook.
 - **Filters tokens** (optional): forged, expired or invalid tokens are rejected before they reach the plugin,
   and clients that keep sending them are throttled.
@@ -40,7 +43,7 @@ placeholder names or evaluate templates.
 ## Quick start
 
 ```sh
-git clone https://git.mvdw-software.com/mcdashboard/mcdashboard-proxy.git
+git clone https://github.com/MVdWSoftware/mcdashboard-proxy.git
 cd MCDashboard-proxy
 cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
 docker compose up -d
