@@ -1,7 +1,10 @@
 # Copyright (c) 2026 MVdW-Software
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-FROM node:22-alpine AS build
+# BuildKit builds the TypeScript once on the runner's own architecture ($BUILDPLATFORM) and copies the result into each
+# published architecture, so an arm64 image needs no emulation and builds as fast as an amd64 one. BuildKit is the
+# default builder in current Docker; with an old one set DOCKER_BUILDKIT=1.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -13,6 +16,12 @@ RUN pnpm build && pnpm prune --prod
 FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app
+LABEL org.opencontainers.image.title="MCDashboard-proxy" \
+      org.opencontainers.image.description="Caching, rate-limiting reverse proxy for the MCDashboard plugin" \
+      org.opencontainers.image.source="https://github.com/MVdWSoftware/mcdashboard-proxy" \
+      org.opencontainers.image.documentation="https://github.com/MVdWSoftware/mcdashboard-proxy/blob/main/docs/deployment.md" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.vendor="MVdW-Software"
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
