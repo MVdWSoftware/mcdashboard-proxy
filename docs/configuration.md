@@ -1,6 +1,8 @@
 # Configuration
 
-All settings are environment variables. Invalid values stop the proxy at startup with a message.
+All settings are environment variables. Invalid values stop the proxy at startup with a message. The published
+container image reads them the same way: `docker run --env-file proxy.env …` or the `environment:` block of the
+compose file (see [deployment.md](deployment.md#container-image)).
 
 ## Connections
 

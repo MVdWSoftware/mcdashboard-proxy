@@ -31,6 +31,27 @@ pnpm build
 A fake plugin (`test/helpers.ts`) emits the same cache headers as the real one, so the suite needs no
 Minecraft server.
 
+## Container image
+
+Pull requests build the image and start it (`smoke` in `.github/workflows/image.yml`): `/healthz` must answer, the
+public listener must answer `OPTIONS` with the CORS headers the app needs, the process must not run as root and the
+built-in `HEALTHCHECK` must turn healthy. A broken `Dockerfile` therefore never merges.
+
+```sh
+docker build -t mcdashboard-proxy .                                # what CI builds
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build   # with Redis, from this checkout
+```
+
+The `Image` workflow publishes on its own, after the same smoke test:
+
+- a push to `main` publishes `edge`, `latest`, `main` and `sha-<commit>`;
+- a `vX.Y.Z` tag publishes `X.Y.Z`, `X.Y` and `latest` (bump `version` in `package.json`, update `CHANGELOG.md`, then
+  tag and push the tag).
+
+It pushes to `ghcr.io/mvdwsoftware/mcdashboard-proxy` with the workflow's `GITHUB_TOKEN`; no secret has to be
+configured. Provenance and an SBOM are attached. When releasing, check the run and that the package's visibility is
+still *Public* (Package settings → Danger Zone).
+
 ## Pull requests
 
 1. Open an issue first for larger changes.

@@ -1,0 +1,130 @@
+# Copyright (c) 2026 MVdW-Software
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# The public container image. Every push to main publishes `edge`, `latest`, `main` and `sha-<commit>`; a `vX.Y.Z` tag
+# publishes `X.Y.Z`, `X.Y` and `latest`. Pull requests build the image without pushing so a broken Dockerfile is caught
+# before it is merged. The package is public: anyone can pull it without an account.
+name: Image
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  IMAGE: ghcr.io/mvdwsoftware/mcdashboard-proxy
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      # A Minecraft host is often an ARM machine (Ampere, a Raspberry Pi), so the image is published for both.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.11.1
+      - name: Log in to the GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.8.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=MCDashboard-proxy
+            org.opencontainers.image.description=Caching, rate-limiting reverse proxy for the MCDashboard plugin
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.vendor=MVdW-Software
+            org.opencontainers.image.documentation=https://github.com/MVdWSoftware/mcdashboard-proxy/blob/main/docs/deployment.md
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.18.0
+        with:
+          context: .
+          # Pull requests check one architecture; a release is published for the machines servers actually run on.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Attestations are published next to the manifest, so they only exist when the image is pushed.
+          provenance: ${{ github.event_name != 'pull_request' }}
+          sbom: ${{ github.event_name != 'pull_request' }}
+      - name: Summary
+        run: |
+          {
+            echo "### Container image"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo "Digest: \`${{ steps.meta.outputs.digest || 'not pushed' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+  # The image is only useful if it starts and answers, so every build is started the way the documentation says.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - name: Build the image for this runner
+        run: docker build --tag mcdashboard-proxy:ci .
+      - name: Start it as the documentation does
+        run: |
+          docker run --detach --name proxy \
+            --env ADMIN_HOST=0.0.0.0 \
+            --publish 18080:8080 --publish 19090:9090 \
+            mcdashboard-proxy:ci
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:19090/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+      - name: Check the answers, the user and the health check
+        run: |
+          set -eu
+          test "$(curl -fsS http://127.0.0.1:19090/healthz)" = ok
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = 404
+          # OPTIONS is answered locally; the app depends on these headers, also through a proxy (see CHANGELOG).
+          curl -fsS -X OPTIONS -D - -o /dev/null http://127.0.0.1:18080/v1/dashboards \
+            | grep -qi 'x-mcdashboard-entitlement'
+          curl -fsS http://127.0.0.1:19090/metrics | grep -q '^mcdp_redis_up'
+          # The image must not run as root.
+          test "$(docker inspect --format '{{.Config.User}}' proxy)" = node
+          for _ in $(seq 1 60); do
+            test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' proxy)" = healthy \
+              && exit 0
+            sleep 2
+          done
+          echo "the container never became healthy"
+          docker inspect --format '{{json .State.Health}}' proxy
+          exit 1
+      - name: Logs
+        if: always()
+        run: |
+          docker logs proxy || true
+          docker rm --force proxy || true

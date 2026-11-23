@@ -12,10 +12,81 @@ Keep the Minecraft host's MCDashboard ports reachable only by the proxy:
 The proxy may run on the Minecraft machine, but the point of a separate host is that an attack saturates the proxy
 rather than the game server.
 
+## Container image
+
+The proxy is published as a public image on the GitHub Container Registry. Pulling it needs no account, token or
+build:
+
+```sh
+docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+```
+
+It is built from this repository by GitHub Actions ([`.github/workflows/image.yml`](../.github/workflows/image.yml))
+on every push to `main` and on every `vX.Y.Z` tag, and each build is started and checked (`/healthz`, CORS preflight,
+non-root user, Docker health check) before it is published.
+
+| Tag | Published | Use |
+| --- | --- | --- |
+| `latest` | every push to `main`, and every release | try it out; it moves |
+| `edge` / `main` | every push to `main` | the same build as `latest`, under a name that says what it is |
+| `X.Y.Z` / `X.Y` | tag `vX.Y.Z` | production; `X.Y` follows the patch releases |
+| `sha-<commit>` | every build | exactly one commit, for reproducing an issue |
+| `@sha256:…` (digest) | every build | immutable; pin this when in doubt |
+
+Both `linux/amd64` and `linux/arm64` are published, because Minecraft hosts are often ARM machines (Ampere,
+Raspberry Pi). The image is `node:22-alpine` with production dependencies only, runs as the unprivileged `node`
+user, exposes the public port `8080` and keeps the admin port `9090` on the container's loopback. Its `HEALTHCHECK`
+asks `/healthz`; with `ADMIN_PORT=0` it falls back to a TCP check on the public port, so `docker compose up --wait`
+works either way.
+
+Run it with an environment file (every setting is a variable, see [configuration.md](configuration.md)):
+
+```sh
+cp .env.example proxy.env     # fill in REDIS_PASSWORD and TRUSTED_PROXIES; or leave REDIS_URL unset to use memory
+docker run -d --name mcdashboard-proxy --restart unless-stopped \
+  --env-file proxy.env --publish 8080:8080 \
+  ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+docker logs mcdashboard-proxy      # mcdashboard-proxy on 0.0.0.0:8080 -> http://…
+```
+
+The container needs no volume: the cache, rate-limit counters and revocations live in Redis, or in memory when
+`REDIS_URL` is unset. Stopping and recreating it loses nothing.
+
+Pin a release tag, or a digest when the deployment must never change under you:
+
+```sh
+docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest    # or a release tag such as :0.1.0
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+```
+
+Use `ghcr.io/mvdwsoftware/mcdashboard-proxy@sha256:…` in `MCDP_IMAGE` (the compose file reads that variable) or in
+`docker run`. Upgrading is `docker compose pull && docker compose up -d`, or pulling and recreating the container;
+the proxy is stateless.
+
+Inspect what was published, including the manifest list for both architectures and the build provenance and SBOM
+attestations:
+
+```sh
+docker buildx imagetools inspect ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+```
+
+Build the image from a checkout instead (that is what a pull request does):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# or
+docker build -t mcdashboard-proxy .
+```
+
+The image contains AGPL-3.0 code. Running an unmodified copy is fine; if you modify the proxy and let clients use it
+over a network, the licence requires you to offer the modified source.
+
 ## Docker Compose
 
-`docker-compose.yml` starts the proxy and a password-protected Redis (no published port,
-128 MB, no persistence). The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry, which
+`docker-compose.yml` pulls the published image and starts it next to a password-protected Redis (no published port,
+128 MB, no persistence). Set `MCDP_IMAGE` in `.env` to pin a version or digest; add `-f docker-compose.build.yml` to
+build the image from the checkout instead.
+The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry, which
 is a cold cache entry, not a hot rate-limit counter. `volatile-ttl` would drop the entry closest to expiry, and that is
 the 60-second counter rather than a cache entry (cache entries live `max-age` + `STALE_IF_ERROR_S`); resetting the
 counters is exactly what a cache-fill wants, so the limits would fall away one by one. `allkeys-lru` would also evict
@@ -27,8 +98,7 @@ revoked device) and is the reason Redis needs enough `maxmemory` for the deny li
 the cache. Watch `mcdp_redis_up` and the evicted-keys metric of Redis itself.
 
 Configure it through `.env` ([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every
-variable. The image runs as the unprivileged `node` user, keeps the admin port on the container's loopback (enough for
-its health check), and only falls back to a TCP check on the public port when `ADMIN_PORT=0` disables the admin listener.
+variable. Keep the admin port on the container's loopback; publish only `8080` and put TLS in front of it.
 
 ```sh
 docker compose up -d
@@ -106,4 +176,5 @@ plugin answers; a Redis outage does not make it fail, because the proxy keeps se
 ## Upgrading
 
 Releases follow semver and are listed in the [changelog](../CHANGELOG.md). The proxy is stateless;
-restart it any time, the cache lives in Redis.
+restart it any time, the cache lives in Redis. With compose: `docker compose pull && docker compose up -d`. Without
+it: `docker pull` the new tag and recreate the container, or change `MCDP_IMAGE` to the new version or digest first.

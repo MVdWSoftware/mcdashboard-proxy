@@ -42,12 +42,29 @@ placeholder names or evaluate templates.
 
 ## Quick start
 
+The proxy is published as a public container image (`docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy` needs no
+account and nothing has to be built):
+
 ```sh
 git clone https://github.com/MVdWSoftware/mcdashboard-proxy.git
-cd MCDashboard-proxy
+cd mcdashboard-proxy
 cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
-docker compose up -d
+docker compose up -d        # pulls the image and a Redis
 ```
+
+Or run the image directly, without the compose file (without `REDIS_URL` the cache lives in memory, which is
+fine for one proxy):
+
+```sh
+docker run -d --name mcdashboard-proxy --restart unless-stopped \
+  --env-file proxy.env --publish 8080:8080 \
+  ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+```
+
+`latest` follows the main branch; production deployments pin a release tag or the digest it resolves to (every build
+also has an immutable `sha-<commit>` tag). The image is built for `linux/amd64` and `linux/arm64`, runs as the
+unprivileged `node` user and has its health check built in; tags, verification and upgrading are in
+[docs/deployment.md](docs/deployment.md#container-image).
 
 Then, in the plugin's `config.yml`, set `server.host: "<private address>"` so only the proxy can reach it, and
 add the proxy to `security.trusted-proxies` so the plugin's own limits see real client addresses. Put TLS
@@ -61,6 +78,12 @@ UPSTREAM_URL=http://127.0.0.1:1553 REDIS_URL=redis://127.0.0.1:6379 node dist/in
 ```
 
 Without `REDIS_URL` the proxy keeps cache and counters in memory: fine for one node, but they are not shared.
+
+To build the image from source instead of pulling it:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ## What is and is not protected
 
