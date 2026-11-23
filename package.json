@@ -16,5 +16,5 @@
     "start": "node dist/index.js"
   },
   "dependencies": { "ioredis": "^5.4.1" },
-  "devDependencies": { "@types/node": "^22.0.0", "@vitest/coverage-v8": "^2.1.9", "typescript": "~5.6.0", "vitest": "^2.1.0" }
+  "devDependencies": { "@types/node": "^22.0.0", "@vitest/coverage-v8": "^2.1.9", "typescript": "~5.9.0", "vitest": "^2.1.0" }
 }
