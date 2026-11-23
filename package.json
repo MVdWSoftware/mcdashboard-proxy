@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Caching, rate-limiting reverse proxy that shields an MCDashboard Minecraft server from abuse",
   "license": "AGPL-3.0-or-later",
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.29.0",
   "type": "module",
   "engines": { "node": ">=22" },
   "bin": { "mcdashboard-proxy": "dist/index.js" },
