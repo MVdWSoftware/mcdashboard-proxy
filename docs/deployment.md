@@ -19,19 +19,14 @@ GitHub Actions builds and publishes the proxy from this repository on every push
 preflight, non-root user, Docker health check) before it is pushed. The image is
 `ghcr.io/mvdwsoftware/mcdashboard-proxy`.
 
-**The package is private for now**, so pulling it needs a GitHub token with `read:packages` (a classic personal access
-token, used as the password; with the `gh` CLI, `gh auth refresh -h github.com -s read:packages` first and then
-`gh auth token`):
+The image is public, so pulling it needs no account or token:
 
 ```sh
-docker login ghcr.io -u <github-user>      # paste a token with read:packages
 docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
 ```
 
-Making it public is a single irreversible switch that only the package owners can make: Package settings → Danger
-Zone → Change visibility → Public. Until then, `docker compose up -d` builds from the checkout, which needs no
-account. On an organisation, *Settings → Packages → default package visibility* can make future packages public
-without this step.
+It is published from the default branch (a `vX.Y.Z` tag publishes release tags too). Each build is started and
+checked before it is pushed; see [CONTRIBUTING.md](../CONTRIBUTING.md#container-image) for the release flow.
 
 | Tag | Published | Use |
 | --- | --- | --- |
@@ -50,7 +45,6 @@ works either way.
 Run it with an environment file (every setting is a variable, see [configuration.md](configuration.md)):
 
 ```sh
-docker login ghcr.io -u <github-user>      # while the package is private: a token with read:packages
 cp .env.example proxy.env     # fill in REDIS_PASSWORD and TRUSTED_PROXIES; or leave REDIS_URL unset to use memory
 docker run -d --name mcdashboard-proxy --restart unless-stopped \
   --env-file proxy.env --publish 8080:8080 \

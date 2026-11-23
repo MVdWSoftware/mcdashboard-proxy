@@ -49,10 +49,9 @@ The `Image` workflow publishes on its own, after the same smoke test:
   tag and push the tag).
 
 It pushes to `ghcr.io/mvdwsoftware/mcdashboard-proxy` with the workflow's `GITHUB_TOKEN`; no secret has to be
-configured. Provenance and an SBOM are attached. The package is private until a package owner sets its visibility to
-*Public* (Package settings → Danger Zone), which is irreversible and cannot be done through the API; do that once the
-image is meant for anonymous users. An organisation can instead set *Settings → Packages → default package
-visibility* to Public so new packages start public.
+configured. Provenance and an SBOM are attached. The package is public, so anyone can pull it without an account.
+Visibility is a one-way switch in the package settings (private → public, and only through the UI, not the API); if a
+newly created package ever starts private because of an organisation default, flip it there.
 
 ## Pull requests
 

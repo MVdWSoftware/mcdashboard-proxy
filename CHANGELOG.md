@@ -6,11 +6,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- A container image, `ghcr.io/mvdwsoftware/mcdashboard-proxy`, built and smoke-tested by GitHub Actions on every push
-  to `main` and on every `vX.Y.Z` tag (`linux/amd64` and `linux/arm64`, provenance and SBOM attached). Tags:
-  `latest`/`edge`/`main` for the branch, `X.Y.Z`/`X.Y` for releases, `sha-<commit>` for one build. The package is
-  private for now: pulling it needs `docker login ghcr.io` with a `read:packages` token until a package owner makes it
-  public, which is irreversible and UI-only. See [docs/deployment.md](docs/deployment.md#container-image).
+- A public container image, `ghcr.io/mvdwsoftware/mcdashboard-proxy`, built and smoke-tested by GitHub Actions on every
+  push to `main` and on every `vX.Y.Z` tag (`linux/amd64` and `linux/arm64`, provenance and SBOM attached, anonymous
+  pulls). Tags: `latest`/`edge`/`main` for the branch, `X.Y.Z`/`X.Y` for releases, `sha-<commit>` for one build. See
+  [docs/deployment.md](docs/deployment.md#container-image).
 - Versioned tunnel handshake: `hello` carries the plugin's tunnel protocol, `ready` carries this proxy's protocol and the
   API features it carries end to end (`TUNNEL_PROTOCOL`, `TUNNEL_FEATURES`), and `/tunnelz` shows the plugin's protocol.
   The plugin publishes only the intersection in `/v1/info`, so an older proxy hides features it would drop. A proxy that

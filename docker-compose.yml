@@ -3,7 +3,8 @@
 
 # Settings: docs/configuration.md. Put TLS in front of port 8080 (docs/deployment.md).
 # Every variable below can be set in .env (see .env.example); the value after :- is the default.
-# Builds from this checkout. A published image is available too, but private for now (docs/deployment.md#container-image).
+# Builds from this checkout. The published image (ghcr.io/mvdwsoftware/mcdashboard-proxy) is an alternative;
+# see docs/deployment.md#container-image.
 services:
   proxy:
     build: .

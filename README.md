@@ -3,6 +3,8 @@
 # MCDashboard-proxy
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![CI](https://github.com/MVdWSoftware/mcdashboard-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/MVdWSoftware/mcdashboard-proxy/actions/workflows/ci.yml)
+[![Image](https://github.com/MVdWSoftware/mcdashboard-proxy/actions/workflows/image.yml/badge.svg)](https://github.com/MVdWSoftware/mcdashboard-proxy/actions/workflows/image.yml)
 
 A caching, rate-limiting reverse proxy that sits between the apps and a Minecraft server running the
 [MCDashboard](https://mcdashboard.org) plugin. The Minecraft server stays private; the proxy absorbs
@@ -49,14 +51,22 @@ cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
 docker compose up -d        # builds the image and starts it with a Redis
 ```
 
+The proxy is also published as a public container image
+(`ghcr.io/mvdwsoftware/mcdashboard-proxy`, `linux/amd64` and `linux/arm64`, `docker pull` needs no account). To run
+that instead of building, with its own env file and Redis of your choosing:
+
+```sh
+docker run -d --name mcdashboard-proxy --restart unless-stopped \
+  --env-file proxy.env --publish 8080:8080 \
+  ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
+```
+
+`latest` follows the main branch; pin a release tag or a digest in production. Tags, verification and upgrading are
+in [docs/deployment.md](docs/deployment.md#container-image).
+
 Then, in the plugin's `config.yml`, set `server.host: "<private address>"` so only the proxy can reach it, and
 add the proxy to `security.trusted-proxies` so the plugin's own limits see real client addresses. Put TLS
 in front of port `8080`; see [docs/deployment.md](docs/deployment.md).
-
-An image is also built and published from `main`
-(`ghcr.io/mvdwsoftware/mcdashboard-proxy`, for `linux/amd64` and `linux/arm64`). The package is **private for
-now**, so pulling it needs `docker login ghcr.io` with a token that has `read:packages`; tags, digests and how to
-make it public are in [docs/deployment.md](docs/deployment.md#container-image).
 
 Without Docker (Node 22+):
 
