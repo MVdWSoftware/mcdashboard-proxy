@@ -14,19 +14,10 @@ rather than the game server.
 
 ## Container image
 
-GitHub Actions builds and publishes the proxy from this repository on every push to `main` and on every `vX.Y.Z` tag
-([`.github/workflows/image.yml`](../.github/workflows/image.yml)). Every build is started and checked (`/healthz`, CORS
-preflight, non-root user, Docker health check) before it is pushed. The image is
-`ghcr.io/mvdwsoftware/mcdashboard-proxy`.
-
-The image is public, so pulling it needs no account or token:
-
-```sh
-docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
-```
-
-It is published from the default branch (a `vX.Y.Z` tag publishes release tags too). Each build is started and
-checked before it is pushed; see [CONTRIBUTING.md](../CONTRIBUTING.md#container-image) for the release flow.
+`ghcr.io/mvdwsoftware/mcdashboard-proxy` is public (no account needed to pull). GitHub Actions
+([`image.yml`](../.github/workflows/image.yml)) builds it on every push to `main` and every `vX.Y.Z` tag, and starts and
+checks each build (`/healthz`, CORS preflight, non-root user, health check) before pushing. The release flow is in
+[CONTRIBUTING.md](../CONTRIBUTING.md#container-image).
 
 | Tag | Published | Use |
 | --- | --- | --- |
@@ -55,27 +46,9 @@ docker logs mcdashboard-proxy      # mcdashboard-proxy on 0.0.0.0:8080 -> http:/
 The container needs no volume: the cache, rate-limit counters and revocations live in Redis, or in memory when
 `REDIS_URL` is unset. Stopping and recreating it loses nothing.
 
-Pin a release tag, or a digest when the deployment must never change under you:
-
-```sh
-docker pull ghcr.io/mvdwsoftware/mcdashboard-proxy:latest    # or a release tag such as :0.1.0
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
-```
-
-Upgrading is pulling the new tag and recreating the container; the proxy is stateless.
-
-Inspect what was published, including the manifest list for both architectures and the build provenance and SBOM
-attestations:
-
-```sh
-docker buildx imagetools inspect ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
-```
-
-Build the image from a checkout instead (that is what `docker compose up -d` and every pull request do):
-
-```sh
-docker build -t mcdashboard-proxy .
-```
+Pin a release tag, or a digest (`docker inspect --format '{{index .RepoDigests 0}}' <image>`) when the deployment must
+never change under you. Provenance and SBOM attestations are attached; see them with
+`docker buildx imagetools inspect <image>`. To build from a checkout instead: `docker build -t mcdashboard-proxy .`
 
 The image contains AGPL-3.0 code. Running an unmodified copy is fine; if you modify the proxy and let clients use it
 over a network, the licence requires you to offer the modified source.
@@ -85,16 +58,10 @@ over a network, the licence requires you to offer the modified source.
 `docker-compose.yml` builds the proxy from this checkout and starts it next to a password-protected Redis (no published
 port, 128 MB, no persistence). To run the published image instead, pull and tag it as above and start it with
 `docker run`, or point the compose service's `image:` at it and remove `build: .`.
-The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry, which
-is a cold cache entry, not a hot rate-limit counter. `volatile-ttl` would drop the entry closest to expiry, and that is
-the 60-second counter rather than a cache entry (cache entries live `max-age` + `STALE_IF_ERROR_S`); resetting the
-counters is exactly what a cache-fill wants, so the limits would fall away one by one. `allkeys-lru` would also evict
-non-expiring keys and says nothing about policy, so it is not used either.
-
-The trade-off to know about: LRU has no notion of importance, so under sustained pressure it can eventually evict a
-revocation deny-list entry that no device has asked about for a long time. That list is tiny (one short value per
-revoked device) and is the reason Redis needs enough `maxmemory` for the deny list plus the working set, not only for
-the cache. Watch `mcdp_redis_up` and the evicted-keys metric of Redis itself.
+The eviction policy is `volatile-lru`: a full Redis drops the least recently used entry. `volatile-ttl` would drop
+the entry closest to expiry, which is a 60-second rate-limit counter, so a cache-fill could reset the limits that stop
+it. The trade-off: under sustained pressure LRU can also evict a revocation deny-list entry nobody has asked about for
+a long time, so give Redis enough `maxmemory` for the deny list plus the working set, and watch its evicted-keys metric.
 
 Configure it through `.env` ([`.env.example`](../.env.example)) and see [configuration.md](configuration.md) for every
 variable. Keep the admin port on the container's loopback; publish only `8080` and put TLS in front of it.
@@ -174,6 +141,5 @@ plugin answers; a Redis outage does not make it fail, because the proxy keeps se
 
 ## Upgrading
 
-Releases follow semver and are listed in the [changelog](../CHANGELOG.md). The proxy is stateless;
-restart it any time, the cache lives in Redis. With the image: pull the new tag and recreate the container. With the
-compose file: `git pull && docker compose up -d --build`.
+Releases follow semver ([changelog](../CHANGELOG.md)). The proxy is stateless and the cache lives in Redis, so restart it
+any time. With the image: pull the new tag and recreate the container. With compose: `git pull && docker compose up -d --build`.

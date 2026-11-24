@@ -22,21 +22,16 @@ the traffic, so a popular server or a hostile client cannot slow the game down.
 The plugin resolves PlaceholderAPI values on the server thread. Every app polling a placeholder is work
 the game has to do. The proxy:
 
-- **Caches** answers in Redis, per player for player-specific placeholders (never shared between players), for exactly the `max-age` the plugin announces, so a
-  placeholder is resolved once per interval however many clients ask. Concurrent misses are coalesced into
-  one request (never across a different player, typed player name, `User-Agent` or client attestation), stale
-  entries are revalidated with `If-None-Match`, and a stale copy is served while the server restarts.
-- **Protects** the server: only the routes of the API contract are forwarded, queries and bodies are
-  validated and bounded, clients are rate limited (pairing and uploads far stricter than reads), the
-  number of simultaneous requests towards the plugin is capped, shedding load with `503` instead of queueing,
-  and one client can add only a bounded number of new cache entries.
-- **Speaks the same HTTP as the plugin**: CORS headers on every answer and `OPTIONS` preflights answered
-  locally, so browser clients work through the proxy exactly as they do against the plugin.
-- **Follows revocations**: a device revoked in game is refused at once, even for cached answers, through the plugin's event stream or a signed webhook.
-- **Filters tokens** (optional): forged, expired or invalid tokens are rejected before they reach the plugin,
-  and clients that keep sending them are throttled.
-- **Hides the server**: the Minecraft host's address, headers and error details never reach clients, and
-  the plugin only ever sees the proxy.
+- **Caches** answers in Redis for exactly the `max-age` the plugin announces (per player for player-specific
+  placeholders, never shared between players), so a placeholder is resolved once per interval however many
+  clients ask. Concurrent misses are coalesced, and a stale copy is served while the server restarts.
+- **Protects** the server: only the routes of the API contract are forwarded, requests are validated and
+  bounded, clients are rate limited, and load is shed with `503` instead of queueing.
+- **Follows revocations**: a device revoked in game is refused at once, even for cached answers, through the
+  plugin's event stream, a signed webhook or the tunnel.
+- **Filters tokens** (optional): forged or expired tokens are rejected before they reach the plugin.
+- **Hides the server**: the Minecraft host's address and error details never reach clients, and browsers work
+  through the proxy exactly as against the plugin (CORS, `OPTIONS` preflights).
 - **Scales out**: run several proxies on one Redis; cache and rate-limit counters are shared.
 
 It follows the same API guidelines as the plugin and transforms nothing, so the proxy never needs to know
@@ -51,18 +46,8 @@ cp .env.example .env        # set REDIS_PASSWORD, TRUSTED_PROXIES
 docker compose up -d        # builds the image and starts it with a Redis
 ```
 
-The proxy is also published as a public container image
-(`ghcr.io/mvdwsoftware/mcdashboard-proxy`, `linux/amd64` and `linux/arm64`, `docker pull` needs no account). To run
-that instead of building, with its own env file and Redis of your choosing:
-
-```sh
-docker run -d --name mcdashboard-proxy --restart unless-stopped \
-  --env-file proxy.env --publish 8080:8080 \
-  ghcr.io/mvdwsoftware/mcdashboard-proxy:latest
-```
-
-`latest` follows the main branch; pin a release tag or a digest in production. Tags, verification and upgrading are
-in [docs/deployment.md](docs/deployment.md#container-image).
+A public container image, `ghcr.io/mvdwsoftware/mcdashboard-proxy` (`linux/amd64` and `linux/arm64`), is the
+alternative to building; pin a release tag in production. See [docs/deployment.md](docs/deployment.md#container-image).
 
 Then, in the plugin's `config.yml`, set `server.host: "<private address>"` so only the proxy can reach it, and
 add the proxy to `security.trusted-proxies` so the plugin's own limits see real client addresses. Put TLS

@@ -82,13 +82,11 @@ The plugin already describes what is shareable (see its `docs/reverse-proxy.md`)
 
 Limits of per-player caching:
 
-- **Revocation.** A cached answer is served without asking the plugin, so without a revocation feed a device revoked in
-  game can still read what is already cached for its player until that entry expires (at most the placeholder's
-  `min-interval`, seconds). See [Revocation feed](#revocation-feed) to close that gap. Tokens that were never verified
-  are not given long-lived entries for the same reason.
+- **Revocation.** Without a revocation feed, a device revoked in game can still read what is cached for its player until
+  the entry expires (at most one `min-interval`). See [Revocation feed](#revocation-feed).
 - **Unverified tokens.** Without `MCD_JWT_SECRET` the proxy cannot tell whether a token is genuine, so it stores no
-  answers for a request with one: a random bearer token would otherwise let anyone add entries one at a time. Errors are
-  not remembered either. Set the secret to key by player or device and to reject forged tokens before they cost anything.
+  answers (and remembers no errors) for a request with one: a random bearer token would otherwise let anyone fill the
+  cache. Set the secret to key by player and reject forged tokens early.
 - **Client policy.** The plugin refuses unknown apps by `User-Agent` (`403`, or `426` for an app that is too old). The
   proxy forwards the header, but a cached answer is served whatever the `User-Agent`; the plugin itself treats it as an
   identification, not a credential. In-flight answers are not shared across a different `User-Agent` (see coalescing).
