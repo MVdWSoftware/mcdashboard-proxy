@@ -6,6 +6,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Push notifications (plugin 1.1.0, licensed servers): the proxy routes a device's own `GET`, `PUT` and `DELETE /v1/devices/self/push`
+  (never cached) and reports the `push` feature, so apps behind the proxy can switch push on. CORS allows `PUT`.
 - A public container image, `ghcr.io/mvdwsoftware/mcdashboard-proxy`, built and smoke-tested by GitHub Actions on every
   push to `main` and on every `vX.Y.Z` tag (`linux/amd64` and `linux/arm64`, provenance and SBOM attached, anonymous
   pulls). Tags: `latest`/`edge`/`main` for the branch, `X.Y.Z`/`X.Y` for releases, `sha-<commit>` for one build. See

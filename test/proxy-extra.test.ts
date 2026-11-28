@@ -46,6 +46,15 @@ describe("proxy limits and failures", () => {
     expect(plugin.seen.map((s) => s.method)).toEqual(["DELETE", "DELETE"]);
   });
 
+  it("forwards a device's push settings with the body, and never caches them", async () => {
+    const { plugin, port } = await setup({}, (_req, res) => { res.writeHead(200, { "content-type": "application/json" }).end('{"enabled":true}'); return true; });
+    const headers = { authorization: "Bearer a.b.c", "content-type": "application/json" };
+    expect((await get(port, "/v1/devices/self/push", headers, "PUT", '{"routeToken":"x"}')).status).toBe(200);
+    expect((await get(port, "/v1/devices/self/push", { authorization: "Bearer a.b.c" })).status).toBe(200);
+    expect((await get(port, "/v1/devices/self/push", { authorization: "Bearer a.b.c" })).status).toBe(200);
+    expect(plugin.seen.map((s) => s.method)).toEqual(["PUT", "GET", "GET"]); // the second GET was not served from a cache
+  });
+
   it("lists the allowed methods, adding HEAD only where GET is allowed", async () => {
     const { port } = await setup();
     expect((await get(port, "/v1/auth")).headers.allow).toBe("POST");

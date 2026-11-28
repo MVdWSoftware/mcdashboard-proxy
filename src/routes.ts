@@ -88,6 +88,15 @@ const DEFS: Def[] = [
   { pattern: /^\/v1\/dashboards\/([^/]+)$/, methods: { GET: read("dashboard") }, param: (v) => DASHBOARD_ID.test(v) },
   { pattern: /^\/v1\/dashboard$/, methods: { GET: read("dashboardLegacy") } },
   { pattern: /^\/v1\/devices\/self$/, methods: { DELETE: { name: "unpair", rate: "write", cacheable: false, hasBody: false } } },
+  {
+    // Push notifications (plugin 1.1.0, licensed servers): a device's own settings, so private and never cached.
+    pattern: /^\/v1\/devices\/self\/push$/,
+    methods: {
+      GET: { name: "pushSettings", rate: "read", cacheable: false, hasBody: false },
+      PUT: { name: "pushEnable", rate: "write", cacheable: false, hasBody: true },
+      DELETE: { name: "pushDisable", rate: "write", cacheable: false, hasBody: false },
+    },
+  },
 ];
 
 export function match(method: string, path: string, params: URLSearchParams): Match {

@@ -24,7 +24,7 @@ const SECURITY_HEADERS = {
   // never a cookie, so a wildcard origin grants nothing a direct call to the plugin would not.
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "Authorization, Content-Type, X-MCDashboard-Attestation, X-MCDashboard-Purpose, X-MCDashboard-Entitlement, X-MCDashboard-Player",
-  "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
 };
 
 /** Statuses after which the connection is closed: a flooding client, or a request body that was not read. */

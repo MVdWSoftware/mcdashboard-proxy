@@ -28,7 +28,7 @@ export const TUNNEL_PROTOCOL = 1;
  * list with this one, so an older proxy (which reports nothing) never makes a new app use a route, query parameter or
  * header it drops.
  */
-export const TUNNEL_FEATURES = ["presets", "history-points", "upload", "client-verification", "player-names"] as const;
+export const TUNNEL_FEATURES = ["presets", "history-points", "upload", "client-verification", "player-names", "push"] as const;
 
 export interface TunnelStatus {
   connected: boolean;

@@ -60,7 +60,7 @@ The handshake is versioned, because the plugin and the proxy are updated indepen
   the API features this release carries end to end. The plugin publishes only the intersection with its own list in
   `/v1/info`, so an older proxy never advertises a route, header or query parameter it would drop.
 
-`TUNNEL_FEATURES` currently lists `presets`, `history-points`, `upload`, `client-verification` and `player-names`. Each one
+`TUNNEL_FEATURES` currently lists `presets`, `history-points`, `upload`, `client-verification`, `player-names` and `push`. Each one
 needs something the proxy must do: the dashboard routes, the `points` parameter on `/v1/history/{id}`, the dashboard upload,
 the `X-MCDashboard-Attestation` header, and the `X-MCDashboard-Player` header. The proxy forwards those headers (and
 `X-MCDashboard-Purpose` and `X-MCDashboard-Entitlement`) but only those; every other client header is dropped. Over plain

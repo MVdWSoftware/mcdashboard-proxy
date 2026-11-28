@@ -18,7 +18,7 @@ describe("route allowlist", () => {
       ["GET", "/v1/placeholders/max-players"], ["GET", "/v1/values?ids=a,b"], ["GET", "/v1/history/tps?since=100"],
       ["GET", "/v1/history/tps?since=100&points=150"],
       ["GET", "/v1/dashboards"], ["POST", "/v1/dashboards"], ["GET", "/v1/dashboards/main"], ["GET", "/v1/dashboard"],
-      ["DELETE", "/v1/devices/self"],
+      ["DELETE", "/v1/devices/self"], ["GET", "/v1/devices/self/push"], ["PUT", "/v1/devices/self/push"], ["DELETE", "/v1/devices/self/push"],
     ] as const) expect(m(method, url).kind, `${method} ${url}`).toBe("route");
   });
 
@@ -27,6 +27,17 @@ describe("route allowlist", () => {
     expect(m("GET", "/v1/placeholders/a%2Fb").kind).toBe("notFound");
     expect(m("GET", "/v1/dashboards/UPPER").kind).toBe("notFound");
     expect(m("PUT", "/v1/info")).toEqual({ kind: "methodNotAllowed", allow: ["GET"] });
+  });
+
+  it("routes a device's own push settings, privately", () => {
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const r = m(method, "/v1/devices/self/push");
+      expect(r.kind === "route" && r.route.cacheable, method).toBe(false);
+    }
+    const put = m("PUT", "/v1/devices/self/push");
+    expect(put.kind === "route" && put.route.hasBody && put.route.rate).toBe("write");
+    expect(m("POST", "/v1/devices/self/push")).toEqual({ kind: "methodNotAllowed", allow: ["GET", "PUT", "DELETE"] });
+    expect(m("GET", "/v1/devices/self/push?x=1").kind).toBe("badRequest");
   });
 
   it("validates the query so it cannot be used to bust the cache", () => {
